@@ -2,7 +2,11 @@
 
 Sync your reMarkable Paper Pro documents to your Obsidian vault as high-fidelity PDFs.
 
-If you find this plugin useful, please consider [supporting its development](https://timdom.gumroad.com/l/remarkkable-to-obsidian-sync-plugin).
+If you find this plugin useful, please consider [supporting its development](https://timdom.gumroad.com/l/remarkkable-to-obsidian-sync-plugin) or buying me a coffee:
+
+<a href="https://buymeacoffee.com/keystone.studios" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60">
+</a>
 
 ## Features
 
