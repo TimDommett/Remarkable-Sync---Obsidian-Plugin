@@ -2,6 +2,8 @@
 
 Sync your reMarkable Paper Pro documents to your Obsidian vault as high-fidelity PDFs.
 
+If you find this plugin useful, please consider [supporting its development](https://timdom.gumroad.com/l/remarkkable-to-obsidian-sync-plugin).
+
 ## Features
 
 - **Direct Cloud Sync** - connects to reMarkable Cloud API
