@@ -1,0 +1,93 @@
+{
+    "cPages": {
+        "lastOpened": {
+            "timestamp": "0:0",
+            "value": ""
+        },
+        "original": {
+            "timestamp": "0:0",
+            "value": -1
+        },
+        "pages": [
+            {
+                "id": "fe8fa5b8-971c-421d-8a34-6a0b03706593",
+                "idx": {
+                    "timestamp": "1:2",
+                    "value": "ba"
+                },
+                "modifed": "1771019144754",
+                "template": {
+                    "timestamp": "1:1",
+                    "value": "P Lines medium"
+                }
+            }
+        ],
+        "uuids": [
+            {
+                "first": "cddc0cf3-c151-5db2-ba3b-a2ad5501f22d",
+                "second": 1
+            }
+        ]
+    },
+    "coverPageNumber": -1,
+    "customZoomCenterX": 0,
+    "customZoomCenterY": 936,
+    "customZoomOrientation": "portrait",
+    "customZoomPageHeight": 1872,
+    "customZoomPageWidth": 1404,
+    "customZoomScale": 1,
+    "documentMetadata": {
+    },
+    "extraMetadata": {
+        "LastActiveTool": "primary",
+        "LastBallpointv2Color": "Black",
+        "LastBallpointv2Size": "2",
+        "LastCalligraphyColor": "Magenta",
+        "LastCalligraphySize": "3",
+        "LastEraseSectionColor": "Black",
+        "LastEraseSectionSize": "2",
+        "LastEraserColor": "Black",
+        "LastEraserSize": "2",
+        "LastEraserTool": "EraseSection",
+        "LastFinelinerv2Color": "Magenta",
+        "LastFinelinerv2Size": "2",
+        "LastHighlighterv2Color": "ArgbCode",
+        "LastHighlighterv2ColorCode": "4291282886",
+        "LastHighlighterv2Size": "1",
+        "LastMarkerv2Color": "Magenta",
+        "LastMarkerv2Size": "2",
+        "LastPaintbrushv2Color": "Magenta",
+        "LastPaintbrushv2Size": "2",
+        "LastPen": "Ballpointv2",
+        "LastPencilv2Color": "Black",
+        "LastPencilv2Size": "2",
+        "LastSelectionToolColor": "Black",
+        "LastSelectionToolSize": "2",
+        "LastShadingMarkerColor": "ArgbCode",
+        "LastShadingMarkerColorCode": "1075912220",
+        "LastShadingMarkerSize": "2",
+        "LastSharpPencilv2Color": "Magenta",
+        "LastSharpPencilv2Size": "2",
+        "SecondaryBallpointv2Color": "Black",
+        "SecondaryBallpointv2Size": "1",
+        "SecondaryHighlighterv2Color": "HighlighterYellow",
+        "SecondaryHighlighterv2Size": "1",
+        "SecondaryMarkerv2Color": "Cyan",
+        "SecondaryMarkerv2Size": "2",
+        "SecondaryPen": "Ballpointv2"
+    },
+    "fileType": "notebook",
+    "fontName": "",
+    "formatVersion": 2,
+    "lineHeight": -1,
+    "orientation": "portrait",
+    "pageCount": 1,
+    "pageTags": [
+    ],
+    "sizeInBytes": "17402",
+    "tags": [
+    ],
+    "textAlignment": "justify",
+    "textScale": 1,
+    "zoomMode": "bestFit"
+}

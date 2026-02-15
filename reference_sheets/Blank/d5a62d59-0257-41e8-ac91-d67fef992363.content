@@ -1,0 +1,78 @@
+{
+    "cPages": {
+        "lastOpened": {
+            "timestamp": "0:0",
+            "value": ""
+        },
+        "original": {
+            "timestamp": "0:0",
+            "value": -1
+        },
+        "pages": [
+            {
+                "id": "09f3efb8-dc41-408d-bb20-2438ea3b6c9b",
+                "idx": {
+                    "timestamp": "1:2",
+                    "value": "ba"
+                },
+                "modifed": "1771014603340",
+                "template": {
+                    "timestamp": "1:1",
+                    "value": "Blank"
+                }
+            }
+        ],
+        "uuids": [
+            {
+                "first": "cddc0cf3-c151-5db2-ba3b-a2ad5501f22d",
+                "second": 1
+            }
+        ]
+    },
+    "coverPageNumber": -1,
+    "customZoomCenterX": 0,
+    "customZoomCenterY": 936,
+    "customZoomOrientation": "portrait",
+    "customZoomPageHeight": 1872,
+    "customZoomPageWidth": 1404,
+    "customZoomScale": 1,
+    "documentMetadata": {
+    },
+    "extraMetadata": {
+        "LastActiveTool": "primary",
+        "LastBallpointv2Color": "Black",
+        "LastBallpointv2Size": "2",
+        "LastEraseSectionColor": "Black",
+        "LastEraseSectionSize": "2",
+        "LastEraserColor": "Black",
+        "LastEraserSize": "2",
+        "LastEraserTool": "EraseSection",
+        "LastPen": "Ballpointv2",
+        "LastPencilv2Color": "Black",
+        "LastPencilv2Size": "2",
+        "LastSelectionToolColor": "Black",
+        "LastSelectionToolSize": "2",
+        "LastShadingMarkerColor": "ArgbCode",
+        "LastShadingMarkerColorCode": "1075912220",
+        "LastShadingMarkerSize": "2",
+        "SecondaryHighlighterv2Color": "HighlighterYellow",
+        "SecondaryHighlighterv2Size": "1",
+        "SecondaryMarkerv2Color": "Cyan",
+        "SecondaryMarkerv2Size": "2",
+        "SecondaryPen": "Markerv2"
+    },
+    "fileType": "notebook",
+    "fontName": "",
+    "formatVersion": 2,
+    "lineHeight": -1,
+    "orientation": "portrait",
+    "pageCount": 1,
+    "pageTags": [
+    ],
+    "sizeInBytes": "3751",
+    "tags": [
+    ],
+    "textAlignment": "justify",
+    "textScale": 1,
+    "zoomMode": "bestFit"
+}
