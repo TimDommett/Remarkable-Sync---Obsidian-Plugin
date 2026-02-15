@@ -1,0 +1,12 @@
+.remarkable-sync-status {
+	margin-top: 4px;
+	font-size: 0.85em;
+}
+
+.remarkable-sync-status-ok {
+	color: var(--text-success);
+}
+
+.remarkable-sync-status-error {
+	color: var(--text-error);
+}
