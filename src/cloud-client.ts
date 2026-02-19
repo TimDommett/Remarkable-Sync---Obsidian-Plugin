@@ -268,15 +268,24 @@ export class RemarkableCloudClient {
 		return entries;
 	}
 
-	private async fetchDocSubIndex(entryHash: string): Promise<[string, string][]> {
-		const data = await this.fetchFile(entryHash);
+	// Parse an index file returned by /sync/v3/files/{ref}.
+	// Schema v4 format:
+	//   line 1:    schema version (e.g. "4")
+	//   4-part lines: flags:uuid:version:size  → document UUID identifier, skip
+	//   5-part lines: hash:flags:filename:version:size  → actual content file
+	private async fetchDocSubIndex(ref: string): Promise<[string, string][]> {
+		const data = await this.fetchFile(ref);
 		const text = new TextDecoder().decode(data);
 		const files: [string, string][] = [];
 
 		for (const line of text.trim().split("\n").slice(1)) {
-			const parts = line.split(":");
-			if (parts.length >= 3) {
-				files.push([parts[2], parts[0]]); // [filename, fileHash]
+			const parts = line.trim().split(":");
+			// 5-part file entry: hash:flags:filename:version:size
+			// Skip 4-part UUID-reference lines (flags:uuid:version:size)
+			if (parts.length >= 5 && parts[0].length > 4) {
+				const hash = parts[0];
+				const filename = parts[2];
+				if (filename) files.push([filename, hash]);
 			}
 		}
 		return files;
