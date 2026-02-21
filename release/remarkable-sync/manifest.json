@@ -1,9 +1,11 @@
 {
 	"id": "remarkable-sync",
 	"name": "reMarkable Sync",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"minAppVersion": "0.15.0",
 	"description": "Sync your reMarkable Paper Pro documents to your Obsidian vault as PDFs.",
 	"author": "Tim Dommett",
+	"authorUrl": "https://github.com/TimDommett",
+	"fundingUrl": "https://buymeacoffee.com/keystone.studios",
 	"isDesktopOnly": true
 }
