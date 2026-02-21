@@ -34,6 +34,12 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 
 **Note:** This is a desktop-only plugin (requires Obsidian desktop app).
 
+## Privacy & data
+
+- This plugin connects to the **reMarkable Cloud API** (`*.remarkable.com`) to download your documents. No data is sent to any other service.
+- Authentication tokens are stored locally on your machine at `~/.remarkable-sync/token.json`, outside the Obsidian vault.
+- No telemetry or analytics are collected.
+
 ## Authentication
 
 1. Go to https://my.remarkable.com/device/desktop/connect to get a one-time code
