@@ -8,6 +8,8 @@ If you find this plugin useful, please consider [supporting its development](htt
   <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60">
 </a>
 
+**Have an idea for a new feature?** [Vote on upcoming features or suggest your own!](https://feature-voting.keystone-studios.com/remarkable-sync)
+
 ## Features
 
 - **Direct Cloud Sync** - connects to reMarkable Cloud API
