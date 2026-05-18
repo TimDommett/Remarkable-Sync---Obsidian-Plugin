@@ -412,7 +412,8 @@ async function renderTextBlock(
 
 export async function renderPageToPdf(
 	page: Page,
-	backgroundPdf?: Uint8Array
+	backgroundPdf?: Uint8Array,
+	template?: string | null
 ): Promise<Uint8Array> {
 	const doc = await PDFDocument.create();
 
@@ -423,6 +424,12 @@ export async function renderPageToPdf(
 	const pdfPage = doc.addPage([geo.pageWidthPt, geo.pageHeightPt]);
 
 	const extGStates = new Map<number, string>();
+
+	// Template background goes underneath everything. Only render when there's
+	// no original PDF — when there is one, the template is already part of it.
+	if (!backgroundPdf && template) {
+		drawTemplateBackground(pdfPage, geo, template);
+	}
 
 	// Render highlighter/shader strokes FIRST (behind regular strokes)
 	for (const layer of page.layers) {
@@ -460,13 +467,15 @@ export async function renderPageToPdf(
 
 export async function renderNotebookToPdf(
 	pages: Page[],
-	backgroundPdfs?: (Uint8Array | null)[]
+	backgroundPdfs?: (Uint8Array | null)[],
+	templates?: (string | null)[]
 ): Promise<Uint8Array> {
 	const outputDoc = await PDFDocument.create();
 
 	for (let i = 0; i < pages.length; i++) {
 		const background = backgroundPdfs && i < backgroundPdfs.length ? backgroundPdfs[i] : null;
-		const pagePdfBytes = await renderPageToPdf(pages[i], background ?? undefined);
+		const template = templates && i < templates.length ? templates[i] : null;
+		const pagePdfBytes = await renderPageToPdf(pages[i], background ?? undefined, template);
 
 		const pageDoc = await PDFDocument.load(pagePdfBytes);
 		const copiedPages = await outputDoc.copyPages(pageDoc, pageDoc.getPageIndices());
@@ -476,6 +485,61 @@ export async function renderNotebookToPdf(
 	}
 
 	return outputDoc.save();
+}
+
+// Approximate reMarkable's built-in templates by name. Spacing values are
+// chosen by eye against reMarkable Paper Pro screenshots — exact pixel
+// fidelity isn't possible without bundling the template SVGs.
+function drawTemplateBackground(pdfPage: PDFPage, geo: PageGeometry, template: string): void {
+	const name = template.toLowerCase();
+	if (!name || name === "blank") return;
+
+	const w = geo.pageWidthPt;
+	const h = geo.pageHeightPt;
+	const ink = rgb(0.78, 0.78, 0.78);
+
+	// Order matters: more specific names ("checklist", "isometric") are
+	// checked before generic substring matches ("lines", "grid", "dots").
+	if (name.includes("isometric") || name.includes("hex")) return; // too complex to approximate
+	if (name.includes("calendar") || name.includes("planner") || name.includes("agenda")) return;
+
+	if (name.includes("dot")) {
+		const spacing = name.includes(" l") || name.endsWith("l") ? 32 : name.includes(" m") ? 22 : 16;
+		for (let y = spacing; y < h; y += spacing) {
+			for (let x = spacing; x < w; x += spacing) {
+				pdfPage.drawCircle({ x, y, size: 0.6, color: ink, opacity: 0.6 });
+			}
+		}
+		return;
+	}
+
+	if (name.includes("grid")) {
+		const spacing = name.includes(" l") ? 32 : name.includes(" m") ? 22 : 16;
+		for (let y = spacing; y < h; y += spacing) {
+			pdfPage.drawLine({ start: { x: 0, y }, end: { x: w, y }, thickness: 0.3, color: ink, opacity: 0.6 });
+		}
+		for (let x = spacing; x < w; x += spacing) {
+			pdfPage.drawLine({ start: { x, y: 0 }, end: { x, y: h }, thickness: 0.3, color: ink, opacity: 0.6 });
+		}
+		return;
+	}
+
+	if (name.includes("line") || name.includes("ruled") || name.includes("notes")) {
+		const spacing = name.includes(" l") ? 32 : name.includes(" m") ? 24 : 20;
+		const margin = 24;
+		for (let y = spacing; y < h - margin; y += spacing) {
+			pdfPage.drawLine({
+				start: { x: margin, y },
+				end: { x: w - margin, y },
+				thickness: 0.4,
+				color: ink,
+				opacity: 0.6,
+			});
+		}
+		return;
+	}
+
+	// Unknown template: leave blank rather than guess.
 }
 
 async function mergeWithBackground(

@@ -79,6 +79,7 @@ export class DocumentConverter {
 
 		const parsedPages: Page[] = [];
 		const backgroundPdfs: (Uint8Array | null)[] = [];
+		const templates: (string | null)[] = [];
 
 		for (let i = 0; i < content.pages.length; i++) {
 			const pageInfo = content.pages[i];
@@ -106,6 +107,16 @@ export class DocumentConverter {
 								}
 							}
 						}
+						// Also consider typed-text bottom — typed notebooks
+						// often have no strokes, so a stroke-only bound would
+						// truncate long typed content at the first screen.
+						for (const tb of page.textBlocks) {
+							const lines = tb.text ? tb.text.split("\n").length : 1;
+							// ~30 .rm units per line is a conservative approximation
+							// of reMarkable's typed line height.
+							const textBottom = tb.posY + lines * 30;
+							if (textBottom > maxY) maxY = textBottom;
+						}
 						const scaledHeight = maxY * 0.885;
 						if (scaledHeight > threshold) {
 							page.height = scaledHeight;
@@ -130,12 +141,14 @@ export class DocumentConverter {
 			} else {
 				backgroundPdfs.push(null);
 			}
+
+			templates.push(pageInfo.template);
 		}
 
 		if (parsedPages.length === 1) {
-			return renderPageToPdf(parsedPages[0], backgroundPdfs[0] ?? undefined);
+			return renderPageToPdf(parsedPages[0], backgroundPdfs[0] ?? undefined, templates[0]);
 		}
-		return renderNotebookToPdf(parsedPages, backgroundPdfs);
+		return renderNotebookToPdf(parsedPages, backgroundPdfs, templates);
 	}
 
 	// --- ZIP processing ---

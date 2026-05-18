@@ -224,9 +224,23 @@ export class RemarkableCloudClient {
 
 	private async fetchFile(fileHash: string): Promise<Uint8Array> {
 		const url = `${SYNC_HOST}/sync/v3/files/${fileHash}`;
-		const response = await this.fetchFn(url, { headers: this.authHeaders() });
+		let response = await this.fetchFn(url, { headers: this.authHeaders() });
+		// Token may have expired mid-sync — refresh and retry once on 401.
+		if (response.status === 401) {
+			await this.ensureAuthenticated(true);
+			response = await this.fetchFn(url, { headers: this.authHeaders() });
+		}
 		if (!response.ok) {
-			throw new Error(`Failed to fetch file ${fileHash}: HTTP ${response.status}`);
+			let detail = "";
+			try {
+				const body = await response.text();
+				if (body) detail = ` — ${body.slice(0, 200).replace(/\s+/g, " ").trim()}`;
+			} catch {
+				// response body may not be readable
+			}
+			throw new Error(
+				`Failed to fetch file ${fileHash}: HTTP ${response.status}${detail}`
+			);
 		}
 		return new Uint8Array(await response.arrayBuffer());
 	}
@@ -295,25 +309,32 @@ export class RemarkableCloudClient {
 		await this.ensureAuthenticated();
 
 		const entries = await this.fetchRootIndex();
-		const documents: DocumentMetadata[] = [];
 
-		for (const entry of entries) {
+		// Fetch sub-indexes + metadata in parallel. Each entry needs two
+		// sequential HTTP calls (index then metadata), but entries are
+		// independent — running them concurrently turns an O(N) wall-clock
+		// time into O(N / CONCURRENCY) for the bottleneck users hit on
+		// first sync of a vault with hundreds of notes.
+		const documents = await mapWithConcurrency(entries, FETCH_CONCURRENCY, async (entry) => {
 			const subFiles = await this.fetchDocSubIndex(entry.hash);
 			this.docFileIndex.set(entry.uuid, subFiles);
 
 			let metadata: Record<string, any> = {};
 			for (const [filename, fileHash] of subFiles) {
 				if (filename.endsWith(".metadata")) {
-					const metaData = await this.fetchFile(fileHash);
-					metadata = JSON.parse(new TextDecoder().decode(metaData));
+					try {
+						const metaData = await this.fetchFile(fileHash);
+						metadata = JSON.parse(new TextDecoder().decode(metaData));
+					} catch {
+						// A single missing/corrupt metadata file shouldn't
+						// abort the whole listing — return what we have.
+					}
 					break;
 				}
 			}
 
-			documents.push(
-				docFromSync15(entry.uuid, entry.version, entry.hash, metadata)
-			);
-		}
+			return docFromSync15(entry.uuid, entry.version, entry.hash, metadata);
+		});
 
 		return documents;
 	}
@@ -336,15 +357,45 @@ export class RemarkableCloudClient {
 		}
 
 		const subFiles = this.docFileIndex.get(docId)!;
-		const zip = new JSZip();
 
-		for (const [filename, fileHash] of subFiles) {
-			const fileData = await this.fetchFile(fileHash);
-			zip.file(filename, fileData);
+		const fetched = await mapWithConcurrency(subFiles, FETCH_CONCURRENCY, async ([filename, fileHash]) => {
+			const data = await this.fetchFile(fileHash);
+			return { filename, data };
+		});
+
+		const zip = new JSZip();
+		for (const { filename, data } of fetched) {
+			zip.file(filename, data);
 		}
 
 		return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 	}
+}
+
+// Concurrency cap for parallel cloud requests. reMarkable's API has no
+// published rate limit; 6 mirrors what browsers use for HTTP/1.1 and
+// keeps us well clear of any reasonable per-host throttle.
+const FETCH_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	limit: number,
+	fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+	const results: R[] = new Array(items.length);
+	let next = 0;
+	const worker = async () => {
+		while (true) {
+			const i = next++;
+			if (i >= items.length) return;
+			results[i] = await fn(items[i], i);
+		}
+	};
+	const workers: Promise<void>[] = [];
+	const n = Math.min(limit, items.length);
+	for (let i = 0; i < n; i++) workers.push(worker());
+	await Promise.all(workers);
+	return results;
 }
 
 // --- Folder tree ---
