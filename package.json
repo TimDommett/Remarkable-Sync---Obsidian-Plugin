@@ -6,7 +6,8 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production && cp manifest.json styles.css release/remarkable-sync/",
-		"test": "npx tsx run-sync.ts"
+		"test": "npx tsx run-sync.ts",
+		"test:unit": "npx tsx --test src/cloud-client.test.ts"
 	},
 	"keywords": [],
 	"author": "Tim Dommett",

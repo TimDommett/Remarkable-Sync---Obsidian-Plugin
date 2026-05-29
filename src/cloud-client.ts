@@ -12,6 +12,14 @@ import JSZip from "jszip";
 export const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
 export const SYNC_HOST = "https://internal.cloud.remarkable.com";
 
+// The sync v3 blob endpoint now requires an `rm-filename` header whose value
+// must match the blob's logical name, otherwise it returns HTTP 400
+// ({"message":"unexpected 'rm-filename' http header"}). Index blobs use the
+// ".docSchema" extension; content blobs use their real filename from the index.
+const RM_FILENAME_HEADER = "rm-filename";
+const DOC_SCHEMA_EXT = "docSchema";
+const ROOT_INDEX_FILENAME = `root.${DOC_SCHEMA_EXT}`;
+
 // --- Fetch abstraction (native fetch vs Obsidian requestUrl) ---
 
 export interface FetchResponse {
@@ -222,9 +230,11 @@ export class RemarkableCloudClient {
 		return { Authorization: `Bearer ${this.tokens.userToken}` };
 	}
 
-	private async fetchFile(fileHash: string): Promise<Uint8Array> {
+	private async fetchFile(fileHash: string, filename: string): Promise<Uint8Array> {
 		const url = `${SYNC_HOST}/sync/v3/files/${fileHash}`;
-		const response = await this.fetchFn(url, { headers: this.authHeaders() });
+		const response = await this.fetchFn(url, {
+			headers: { ...this.authHeaders(), [RM_FILENAME_HEADER]: filename },
+		});
 		if (!response.ok) {
 			throw new Error(`Failed to fetch file ${fileHash}: HTTP ${response.status}`);
 		}
@@ -247,7 +257,7 @@ export class RemarkableCloudClient {
 		const root = await response.json();
 
 		const rootHash = root.hash;
-		const indexData = await this.fetchFile(rootHash);
+		const indexData = await this.fetchFile(rootHash, ROOT_INDEX_FILENAME);
 		const indexText = new TextDecoder().decode(indexData);
 
 		const lines = indexText.trim().split("\n");
@@ -273,8 +283,8 @@ export class RemarkableCloudClient {
 	//   line 1:    schema version (e.g. "4")
 	//   4-part lines: flags:uuid:version:size  → document UUID identifier, skip
 	//   5-part lines: hash:flags:filename:version:size  → actual content file
-	private async fetchDocSubIndex(ref: string): Promise<[string, string][]> {
-		const data = await this.fetchFile(ref);
+	private async fetchDocSubIndex(ref: string, docId: string): Promise<[string, string][]> {
+		const data = await this.fetchFile(ref, `${docId}.${DOC_SCHEMA_EXT}`);
 		const text = new TextDecoder().decode(data);
 		const files: [string, string][] = [];
 
@@ -298,13 +308,13 @@ export class RemarkableCloudClient {
 		const documents: DocumentMetadata[] = [];
 
 		for (const entry of entries) {
-			const subFiles = await this.fetchDocSubIndex(entry.hash);
+			const subFiles = await this.fetchDocSubIndex(entry.hash, entry.uuid);
 			this.docFileIndex.set(entry.uuid, subFiles);
 
 			let metadata: Record<string, any> = {};
 			for (const [filename, fileHash] of subFiles) {
 				if (filename.endsWith(".metadata")) {
-					const metaData = await this.fetchFile(fileHash);
+					const metaData = await this.fetchFile(fileHash, filename);
 					metadata = JSON.parse(new TextDecoder().decode(metaData));
 					break;
 				}
@@ -326,7 +336,7 @@ export class RemarkableCloudClient {
 			let found = false;
 			for (const entry of entries) {
 				if (entry.uuid === docId) {
-					const subFiles = await this.fetchDocSubIndex(entry.hash);
+					const subFiles = await this.fetchDocSubIndex(entry.hash, entry.uuid);
 					this.docFileIndex.set(docId, subFiles);
 					found = true;
 					break;
@@ -339,7 +349,7 @@ export class RemarkableCloudClient {
 		const zip = new JSZip();
 
 		for (const [filename, fileHash] of subFiles) {
-			const fileData = await this.fetchFile(fileHash);
+			const fileData = await this.fetchFile(fileHash, filename);
 			zip.file(filename, fileData);
 		}
 
