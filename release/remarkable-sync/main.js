@@ -4274,24 +4274,21 @@ var RemarkableSyncSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Authentication" });
+    new import_obsidian.Setting(containerEl).setName("Authentication").setHeading();
     const isAuth = this.plugin.settings.isAuthenticated;
-    new import_obsidian.Setting(containerEl).setName((() => {
-      const frag = document.createDocumentFragment();
-      const dot = frag.createSpan();
-      dot.style.display = "inline-block";
-      dot.style.width = "8px";
-      dot.style.height = "8px";
-      dot.style.borderRadius = "50%";
-      dot.style.marginRight = "8px";
-      dot.style.backgroundColor = isAuth ? "#2ea043" : "#888";
-      frag.appendText(isAuth ? "Connected" : "Not connected");
-      return frag;
-    })()).setDesc(
+    const statusSetting = new import_obsidian.Setting(containerEl).setName(isAuth ? "Connected" : "Not connected").setDesc(
       isAuth ? "Authenticated with reMarkable cloud." : "Enter a one-time code below to register."
     );
+    statusSetting.nameEl.prepend(
+      createSpan({
+        cls: [
+          "remarkable-sync-dot",
+          isAuth ? "remarkable-sync-dot-connected" : "remarkable-sync-dot-disconnected"
+        ]
+      })
+    );
     let authCodeValue = "";
-    const authSetting = new import_obsidian.Setting(containerEl).setName("One-time code").setDesc("Get a code from my.remarkable.com, paste it here, and click Register.").addText(
+    const authSetting = new import_obsidian.Setting(containerEl).setName("One-time code").setDesc("Get a code from my.remarkable.com, paste it here, and click register.").addText(
       (text) => text.setPlaceholder("abcde-fghij").onChange((value) => {
         authCodeValue = value;
       })
@@ -4308,7 +4305,7 @@ var RemarkableSyncSettingTab = class extends import_obsidian.PluginSettingTab {
           if (success) {
             this.plugin.settings.isAuthenticated = true;
             await this.plugin.saveSettings();
-            new import_obsidian.Notice("Authentication successful!");
+            new import_obsidian.Notice("Authentication successful.");
             this.display();
           } else {
             new import_obsidian.Notice("Authentication failed. Check your code and try again.");
@@ -4330,7 +4327,7 @@ var RemarkableSyncSettingTab = class extends import_obsidian.PluginSettingTab {
       text: "Get your one-time code here",
       href: AUTH_URL
     });
-    containerEl.createEl("h2", { text: "Sync Configuration" });
+    new import_obsidian.Setting(containerEl).setName("Sync").setHeading();
     new import_obsidian.Setting(containerEl).setName("Subfolder").setDesc("Subfolder within your vault where synced documents are saved.").addText(
       (text) => text.setPlaceholder(DEFAULT_SUBFOLDER).setValue(this.plugin.settings.subfolder).onChange(async (value) => {
         this.plugin.settings.subfolder = value || DEFAULT_SUBFOLDER;
@@ -4354,7 +4351,7 @@ var RemarkableSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         this.plugin.restartAutoSync();
       });
     });
-    containerEl.createEl("h2", { text: "Status" });
+    new import_obsidian.Setting(containerEl).setName("Status").setHeading();
     new import_obsidian.Setting(containerEl).setName("Last sync").setDesc(
       this.plugin.settings.lastSyncTime ? new Date(this.plugin.settings.lastSyncTime).toLocaleString() : "Never"
     );
@@ -4364,19 +4361,19 @@ var RemarkableSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         this.display();
       })
     );
-    containerEl.createEl("h2", { text: "Support" });
+    new import_obsidian.Setting(containerEl).setName("Support").setHeading();
     const donateEl = containerEl.createDiv({ cls: "remarkable-sync-donate" });
     const donateLink = donateEl.createEl("a", {
       href: "https://buymeacoffee.com/keystone.studios"
     });
     donateLink.setAttr("target", "_blank");
-    const donateImg = donateLink.createEl("img", {
+    donateLink.createEl("img", {
+      cls: "remarkable-sync-donate-img",
       attr: {
         src: "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png",
         alt: "Buy Me A Coffee"
       }
     });
-    donateImg.style.height = "60px";
   }
 };
 
@@ -20925,8 +20922,6 @@ function parseRmFile(data, debug = false) {
       const contentStart = reader.tell();
       const contentEnd = contentStart + blockLen;
       if (contentEnd > data.byteLength) {
-        if (debug)
-          console.log(`  Block #${blockCount}: type=${blockType} extends beyond file, stopping`);
         break;
       }
       if (blockType === BLOCK_LINE_ITEM && blockLen > 0) {
@@ -21005,12 +21000,6 @@ function parseRmFile(data, debug = false) {
       }
     }
     strokes.push(stroke2);
-  }
-  if (debug) {
-    console.log(`  Total blocks: ${blockCount}, strokes: ${strokes.length}, tree entries: ${sceneTreeEntries.length}, tree nodes: ${treeNodeMap.size}`);
-    if (textBlock) {
-      console.log(`  Text block: ${textBlock.text.length} chars at (${textBlock.posX}, ${textBlock.posY})`);
-    }
   }
   const layers = strokes.length > 0 ? [{ name: "", strokes }] : [];
   return {
@@ -21868,15 +21857,6 @@ var RemarkableSyncPlugin = class extends import_obsidian2.Plugin {
       id: "check-status",
       name: "Check sync status",
       callback: () => this.refreshAuthStatus()
-    });
-    this.addCommand({
-      id: "open-settings",
-      name: "Open reMarkable Sync settings",
-      callback: () => {
-        const setting = this.app.setting;
-        setting.open();
-        setting.openTabById(this.manifest.id);
-      }
     });
     this.addSettingTab(new RemarkableSyncSettingTab(this.app, this));
     this.restartAutoSync();
