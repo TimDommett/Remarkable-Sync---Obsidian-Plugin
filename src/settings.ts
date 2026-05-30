@@ -31,33 +31,30 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		// --- Authentication ---
-		containerEl.createEl("h2", { text: "Authentication" });
+		new Setting(containerEl).setName("Authentication").setHeading();
 
 		const isAuth = this.plugin.settings.isAuthenticated;
 
-		new Setting(containerEl)
-			.setName((() => {
-				const frag = document.createDocumentFragment();
-				const dot = frag.createSpan();
-				dot.style.display = "inline-block";
-				dot.style.width = "8px";
-				dot.style.height = "8px";
-				dot.style.borderRadius = "50%";
-				dot.style.marginRight = "8px";
-				dot.style.backgroundColor = isAuth ? "#2ea043" : "#888";
-				frag.appendText(isAuth ? "Connected" : "Not connected");
-				return frag;
-			})())
+		const statusSetting = new Setting(containerEl)
+			.setName(isAuth ? "Connected" : "Not connected")
 			.setDesc(isAuth
 				? "Authenticated with reMarkable cloud."
 				: "Enter a one-time code below to register."
 			);
+		statusSetting.nameEl.prepend(
+			createSpan({
+				cls: [
+					"remarkable-sync-dot",
+					isAuth ? "remarkable-sync-dot-connected" : "remarkable-sync-dot-disconnected",
+				],
+			})
+		);
 
 		// Auth code input + register button
 		let authCodeValue = "";
 		const authSetting = new Setting(containerEl)
 			.setName("One-time code")
-			.setDesc("Get a code from my.remarkable.com, paste it here, and click Register.")
+			.setDesc("Get a code from my.remarkable.com, paste it here, and click register.")
 			.addText((text) =>
 				text.setPlaceholder("abcde-fghij").onChange((value) => {
 					authCodeValue = value;
@@ -79,7 +76,7 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 							if (success) {
 								this.plugin.settings.isAuthenticated = true;
 								await this.plugin.saveSettings();
-								new Notice("Authentication successful!");
+								new Notice("Authentication successful.");
 								this.display(); // Refresh to show green status
 							} else {
 								new Notice("Authentication failed. Check your code and try again.");
@@ -105,8 +102,8 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 			href: AUTH_URL,
 		});
 
-		// --- Sync Configuration ---
-		containerEl.createEl("h2", { text: "Sync Configuration" });
+		// --- Sync ---
+		new Setting(containerEl).setName("Sync").setHeading();
 
 		new Setting(containerEl)
 			.setName("Subfolder")
@@ -150,7 +147,7 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 			});
 
 		// --- Status ---
-		containerEl.createEl("h2", { text: "Status" });
+		new Setting(containerEl).setName("Status").setHeading();
 
 		new Setting(containerEl)
 			.setName("Last sync")
@@ -171,19 +168,19 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 			);
 
 		// --- Support ---
-		containerEl.createEl("h2", { text: "Support" });
+		new Setting(containerEl).setName("Support").setHeading();
 
 		const donateEl = containerEl.createDiv({ cls: "remarkable-sync-donate" });
 		const donateLink = donateEl.createEl("a", {
 			href: "https://buymeacoffee.com/keystone.studios",
 		});
 		donateLink.setAttr("target", "_blank");
-		const donateImg = donateLink.createEl("img", {
+		donateLink.createEl("img", {
+			cls: "remarkable-sync-donate-img",
 			attr: {
 				src: "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png",
 				alt: "Buy Me A Coffee",
 			},
 		});
-		donateImg.style.height = "60px";
 	}
 }
