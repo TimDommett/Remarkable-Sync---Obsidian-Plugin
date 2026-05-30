@@ -14,7 +14,6 @@
 	"license": "GPL-3.0-or-later",
 	"devDependencies": {
 		"@types/node": "^16.11.6",
-		"builtin-modules": "^3.3.0",
 		"canvas": "^3.2.1",
 		"esbuild": "0.17.3",
 		"mupdf": "^1.27.0",
