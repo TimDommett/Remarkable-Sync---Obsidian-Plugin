@@ -86,25 +86,30 @@ export class SyncManager {
 	private stateFile: string;
 	private fileOps: FileOps;
 	private state: SyncState;
+	private vaultPath: string;
 
 	constructor(
-		outputDir: string,
+		vaultPath: string,
+		subfolder: string,
 		fileOps: FileOps,
 		state: SyncState
 	) {
-		this.outputDir = stripTrailingSlash(outputDir);
+		this.vaultPath = vaultPath;
+		this.outputDir = vaultPath + "/" + subfolder;
 		this.stateFile = this.outputDir + "/.remarkable-sync-state.json";
 		this.fileOps = fileOps;
 		this.state = state;
 	}
 
 	static async create(
-		outputDir: string,
+		vaultPath: string,
+		subfolder: string,
 		fileOps: FileOps
 	): Promise<SyncManager> {
-		const stateFile = stripTrailingSlash(outputDir) + "/.remarkable-sync-state.json";
+		const outputDir = vaultPath + "/" + subfolder;
+		const stateFile = outputDir + "/.remarkable-sync-state.json";
 		const state = await SyncState.load(stateFile, fileOps);
-		return new SyncManager(outputDir, fileOps, state);
+		return new SyncManager(vaultPath, subfolder, fileOps, state);
 	}
 
 	async sync(
@@ -176,12 +181,12 @@ export class SyncManager {
 		progress: ProgressCallback
 	): Promise<void> {
 		progress(`Downloading: ${docPath}...`);
-		const files = await client.downloadDocument(doc.id);
+		const zipData = await client.downloadDocument(doc.id);
 
 		progress(`Converting: ${docPath}...`);
-		const pdfData = await convertDocument(doc.id, files);
+		const pdfData = await convertDocument(doc.id, zipData);
 
-		// Sanitize path for Windows (forward slashes are kept as folder separators)
+		// Sanitize path for Windows
 		const safePath = docPath.replace(/[<>:"|?*]/g, "_");
 		const outputPath = this.outputDir + "/" + safePath + ".pdf";
 
@@ -192,12 +197,17 @@ export class SyncManager {
 		// Write PDF
 		await this.fileOps.writeBinaryFile(outputPath, pdfData);
 
-		// Compute a simple (non-cryptographic) hash for change detection
+		// Compute MD5-like hash (simple hash for change detection)
 		const hash = simpleHash(pdfData);
+
+		// Relative path from vault root
+		const relativePath = outputPath.startsWith(this.vaultPath + "/")
+			? outputPath.substring(this.vaultPath.length + 1)
+			: outputPath;
 
 		this.state.syncedDocs[doc.id] = {
 			version: doc.version,
-			path: outputPath,
+			path: relativePath,
 			hash,
 			syncedAt: new Date().toISOString(),
 		};
@@ -238,10 +248,6 @@ export class SyncManager {
 }
 
 // --- Utilities ---
-
-function stripTrailingSlash(p: string): string {
-	return p.replace(/\/+$/, "");
-}
 
 function simpleHash(data: Uint8Array): string {
 	// Simple FNV-1a hash as a hex string (not cryptographic, just for change detection)

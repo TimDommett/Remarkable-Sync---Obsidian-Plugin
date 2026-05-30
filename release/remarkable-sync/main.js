@@ -15401,14 +15401,14 @@ var parameters = /* @__PURE__ */ new Map([
   ["Z", 0],
   ["z", 0]
 ]);
-var parse = function(path) {
+var parse = function(path2) {
   var cmd;
   var ret = [];
   var args = [];
   var curArg = "";
   var foundDecimal = false;
   var params = 0;
-  for (var _i = 0, path_1 = path; _i < path_1.length; _i++) {
+  for (var _i = 0, path_1 = path2; _i < path_1.length; _i++) {
     var c = path_1[_i];
     if (parameters.has(c)) {
       params = parameters.get(c);
@@ -15722,8 +15722,8 @@ var segmentToBezier = function(cx1, cy1, th0, th1, rx, ry, sinTh, cosTh) {
   ];
   return result;
 };
-var svgPathToOperators = function(path) {
-  return apply(parse(path));
+var svgPathToOperators = function(path2) {
+  return apply(parse(path2));
 };
 
 // node_modules/pdf-lib/es/api/operations.js
@@ -15880,7 +15880,7 @@ var drawEllipse = function(options) {
     popGraphicsState()
   ]).filter(Boolean);
 };
-var drawSvgPath = function(path, options) {
+var drawSvgPath = function(path2, options) {
   var _a, _b, _c;
   return __spreadArrays([
     pushGraphicsState(),
@@ -15894,7 +15894,7 @@ var drawSvgPath = function(path, options) {
     options.borderWidth && setLineWidth(options.borderWidth),
     options.borderLineCap && setLineCap(options.borderLineCap),
     setDashPattern((_b = options.borderDashArray) !== null && _b !== void 0 ? _b : [], (_c = options.borderDashPhase) !== null && _c !== void 0 ? _c : 0)
-  ], svgPathToOperators(path), [
+  ], svgPathToOperators(path2), [
     // prettier-ignore
     options.color && options.borderWidth ? fillAndStroke() : options.color ? fill() : options.borderColor ? stroke() : closePath(),
     popGraphicsState()
@@ -19886,12 +19886,12 @@ var PDFPage = (
         graphicsState: graphicsStateKey
       }));
     };
-    PDFPage3.prototype.drawSvgPath = function(path, options) {
+    PDFPage3.prototype.drawSvgPath = function(path2, options) {
       var _a, _b, _c, _d, _e, _f, _g, _h, _j;
       if (options === void 0) {
         options = {};
       }
-      assertIs(path, "path", ["string"]);
+      assertIs(path2, "path", ["string"]);
       assertOrUndefined(options.x, "options.x", ["number"]);
       assertOrUndefined(options.y, "options.y", ["number"]);
       assertOrUndefined(options.scale, "options.scale", ["number"]);
@@ -19920,7 +19920,7 @@ var PDFPage = (
         options.borderColor = rgb(0, 0, 0);
       }
       var contentStream = this.getContentStream();
-      contentStream.push.apply(contentStream, drawSvgPath(path, {
+      contentStream.push.apply(contentStream, drawSvgPath(path2, {
         x: (_a = options.x) !== null && _a !== void 0 ? _a : this.x,
         y: (_b = options.y) !== null && _b !== void 0 ? _b : this.y,
         scale: options.scale,
@@ -21716,16 +21716,18 @@ var SyncState = class {
   }
 };
 var SyncManager = class {
-  constructor(outputDir, fileOps, state) {
-    this.outputDir = stripTrailingSlash(outputDir);
+  constructor(vaultPath, subfolder, fileOps, state) {
+    this.vaultPath = vaultPath;
+    this.outputDir = vaultPath + "/" + subfolder;
     this.stateFile = this.outputDir + "/.remarkable-sync-state.json";
     this.fileOps = fileOps;
     this.state = state;
   }
-  static async create(outputDir, fileOps) {
-    const stateFile = stripTrailingSlash(outputDir) + "/.remarkable-sync-state.json";
+  static async create(vaultPath, subfolder, fileOps) {
+    const outputDir = vaultPath + "/" + subfolder;
+    const stateFile = outputDir + "/.remarkable-sync-state.json";
     const state = await SyncState.load(stateFile, fileOps);
-    return new SyncManager(outputDir, fileOps, state);
+    return new SyncManager(vaultPath, subfolder, fileOps, state);
   }
   async sync(client, opts = {}) {
     var _a, _b;
@@ -21777,18 +21779,19 @@ var SyncManager = class {
   }
   async syncDocument(client, doc, docPath, progress) {
     progress(`Downloading: ${docPath}...`);
-    const files = await client.downloadDocument(doc.id);
+    const zipData = await client.downloadDocument(doc.id);
     progress(`Converting: ${docPath}...`);
-    const pdfData = await convertDocument(doc.id, files);
+    const pdfData = await convertDocument(doc.id, zipData);
     const safePath = docPath.replace(/[<>:"|?*]/g, "_");
     const outputPath = this.outputDir + "/" + safePath + ".pdf";
     const parentDir = outputPath.substring(0, outputPath.lastIndexOf("/"));
     await this.fileOps.mkdir(parentDir);
     await this.fileOps.writeBinaryFile(outputPath, pdfData);
     const hash = simpleHash(pdfData);
+    const relativePath = outputPath.startsWith(this.vaultPath + "/") ? outputPath.substring(this.vaultPath.length + 1) : outputPath;
     this.state.syncedDocs[doc.id] = {
       version: doc.version,
-      path: outputPath,
+      path: relativePath,
       hash,
       syncedAt: new Date().toISOString()
     };
@@ -21820,9 +21823,6 @@ var SyncManager = class {
     return false;
   }
 };
-function stripTrailingSlash(p) {
-  return p.replace(/\/+$/, "");
-}
 function simpleHash(data) {
   let hash = 2166136261;
   for (let i = 0; i < data.length; i++) {
@@ -21833,6 +21833,8 @@ function simpleHash(data) {
 }
 
 // src/main.ts
+var path = __toESM(require("path"));
+var fs = __toESM(require("fs"));
 var RemarkableSyncPlugin = class extends import_obsidian2.Plugin {
   constructor() {
     super(...arguments);
@@ -21888,15 +21890,16 @@ var RemarkableSyncPlugin = class extends import_obsidian2.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
-  // Store auth tokens inside the plugin's own config directory (within the
-  // vault's .obsidian folder), accessed through Obsidian's vault adapter.
-  // This keeps tokens out of the synced note content while avoiding any use
-  // of identity-related environment variables or the Node.js fs module.
   getConfigDir() {
-    const pluginDir = this.manifest.dir;
-    if (pluginDir)
-      return pluginDir;
-    return (0, import_obsidian2.normalizePath)(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    return path.join(home, ".remarkable-sync");
+  }
+  getVaultPath() {
+    const adapter = this.app.vault.adapter;
+    if (adapter instanceof import_obsidian2.FileSystemAdapter) {
+      return adapter.getBasePath();
+    }
+    throw new Error("Cannot determine vault path. This plugin requires desktop Obsidian.");
   }
   getObsidianFetch() {
     return async (url, options) => {
@@ -21918,57 +21921,30 @@ var RemarkableSyncPlugin = class extends import_obsidian2.Plugin {
       };
     };
   }
-  // File I/O backed entirely by Obsidian's vault adapter, so the plugin never
-  // touches the filesystem outside the vault via the Node.js fs module.
   getFileOps() {
-    const adapter = this.app.vault.adapter;
-    const parentOf = (p) => {
-      const idx = p.lastIndexOf("/");
-      return idx > 0 ? p.slice(0, idx) : "";
-    };
-    const ensureDir = async (dirPath) => {
-      const normalized = (0, import_obsidian2.normalizePath)(dirPath);
-      if (!normalized || normalized === "." || normalized === "/")
-        return;
-      if (await adapter.exists(normalized))
-        return;
-      const parent = parentOf(normalized);
-      if (parent && parent !== normalized)
-        await ensureDir(parent);
-      if (!await adapter.exists(normalized)) {
-        try {
-          await adapter.mkdir(normalized);
-        } catch (e) {
-        }
-      }
-    };
-    const toArrayBuffer = (data) => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
     return {
       async readFile(filePath) {
-        const normalized = (0, import_obsidian2.normalizePath)(filePath);
         try {
-          if (!await adapter.exists(normalized))
-            return null;
-          return await adapter.read(normalized);
+          return fs.readFileSync(filePath, "utf-8");
         } catch (e) {
           return null;
         }
       },
       async writeFile(filePath, data) {
-        const normalized = (0, import_obsidian2.normalizePath)(filePath);
-        await ensureDir(parentOf(normalized));
-        await adapter.write(normalized, data);
+        const dir = path.dirname(filePath);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(filePath, data, "utf-8");
       },
       async writeBinaryFile(filePath, data) {
-        const normalized = (0, import_obsidian2.normalizePath)(filePath);
-        await ensureDir(parentOf(normalized));
-        await adapter.writeBinary(normalized, toArrayBuffer(data));
+        const dir = path.dirname(filePath);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(filePath, data);
       },
       async mkdir(dirPath) {
-        await ensureDir(dirPath);
+        fs.mkdirSync(dirPath, { recursive: true });
       },
       async exists(filePath) {
-        return adapter.exists((0, import_obsidian2.normalizePath)(filePath));
+        return fs.existsSync(filePath);
       }
     };
   }
@@ -22015,8 +21991,10 @@ var RemarkableSyncPlugin = class extends import_obsidian2.Plugin {
     this.updateStatusBar("syncing...");
     new import_obsidian2.Notice("reMarkable: Starting sync...");
     try {
+      const vaultPath = this.getVaultPath();
       const fileOps = this.getFileOps();
       const manager = await SyncManager.create(
+        vaultPath,
         this.settings.subfolder,
         fileOps
       );

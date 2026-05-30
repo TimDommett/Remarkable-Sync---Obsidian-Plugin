@@ -13,11 +13,10 @@
 	"author": "Tim Dommett",
 	"license": "GPL-3.0-or-later",
 	"devDependencies": {
-		"@types/jszip": "^3.4.0",
 		"@types/node": "^16.11.6",
+		"builtin-modules": "^3.3.0",
 		"canvas": "^3.2.1",
 		"esbuild": "0.17.3",
-		"jszip": "^3.10.1",
 		"mupdf": "^1.27.0",
 		"obsidian": "latest",
 		"pdfjs-dist": "^5.4.624",

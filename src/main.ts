@@ -1,8 +1,10 @@
-import { Notice, Plugin, normalizePath, requestUrl, type DataAdapter } from "obsidian";
+import { FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
 import { RemarkableSyncSettings, DEFAULT_SETTINGS, RemarkableSyncSettingTab } from "./settings";
 import { RemarkableCloudClient, type FileOps, type FetchFn, type FetchResponse } from "./cloud-client";
 import { SyncManager } from "./sync-manager";
 import { SYNC_INTERVALS } from "./constants";
+import * as path from "path";
+import * as fs from "fs";
 
 export default class RemarkableSyncPlugin extends Plugin {
 	settings: RemarkableSyncSettings = DEFAULT_SETTINGS;
@@ -79,14 +81,17 @@ export default class RemarkableSyncPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	// Store auth tokens inside the plugin's own config directory (within the
-	// vault's .obsidian folder), accessed through Obsidian's vault adapter.
-	// This keeps tokens out of the synced note content while avoiding any use
-	// of identity-related environment variables or the Node.js fs module.
 	private getConfigDir(): string {
-		const pluginDir = this.manifest.dir;
-		if (pluginDir) return pluginDir;
-		return normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+		const home = process.env.HOME || process.env.USERPROFILE || "";
+		return path.join(home, ".remarkable-sync");
+	}
+
+	private getVaultPath(): string {
+		const adapter = this.app.vault.adapter;
+		if (adapter instanceof FileSystemAdapter) {
+			return adapter.getBasePath();
+		}
+		throw new Error("Cannot determine vault path. This plugin requires desktop Obsidian.");
 	}
 
 	private getObsidianFetch(): FetchFn {
@@ -108,59 +113,30 @@ export default class RemarkableSyncPlugin extends Plugin {
 		};
 	}
 
-	// File I/O backed entirely by Obsidian's vault adapter, so the plugin never
-	// touches the filesystem outside the vault via the Node.js fs module.
 	private getFileOps(): FileOps {
-		const adapter: DataAdapter = this.app.vault.adapter;
-
-		const parentOf = (p: string): string => {
-			const idx = p.lastIndexOf("/");
-			return idx > 0 ? p.slice(0, idx) : "";
-		};
-
-		const ensureDir = async (dirPath: string): Promise<void> => {
-			const normalized = normalizePath(dirPath);
-			if (!normalized || normalized === "." || normalized === "/") return;
-			if (await adapter.exists(normalized)) return;
-			const parent = parentOf(normalized);
-			if (parent && parent !== normalized) await ensureDir(parent);
-			if (!(await adapter.exists(normalized))) {
-				try {
-					await adapter.mkdir(normalized);
-				} catch {
-					// Ignore races where another call created the directory.
-				}
-			}
-		};
-
-		const toArrayBuffer = (data: Uint8Array): ArrayBuffer =>
-			data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-
 		return {
 			async readFile(filePath: string): Promise<string | null> {
-				const normalized = normalizePath(filePath);
 				try {
-					if (!(await adapter.exists(normalized))) return null;
-					return await adapter.read(normalized);
+					return fs.readFileSync(filePath, "utf-8");
 				} catch {
 					return null;
 				}
 			},
 			async writeFile(filePath: string, data: string): Promise<void> {
-				const normalized = normalizePath(filePath);
-				await ensureDir(parentOf(normalized));
-				await adapter.write(normalized, data);
+				const dir = path.dirname(filePath);
+				fs.mkdirSync(dir, { recursive: true });
+				fs.writeFileSync(filePath, data, "utf-8");
 			},
 			async writeBinaryFile(filePath: string, data: Uint8Array): Promise<void> {
-				const normalized = normalizePath(filePath);
-				await ensureDir(parentOf(normalized));
-				await adapter.writeBinary(normalized, toArrayBuffer(data));
+				const dir = path.dirname(filePath);
+				fs.mkdirSync(dir, { recursive: true });
+				fs.writeFileSync(filePath, data);
 			},
 			async mkdir(dirPath: string): Promise<void> {
-				await ensureDir(dirPath);
+				fs.mkdirSync(dirPath, { recursive: true });
 			},
 			async exists(filePath: string): Promise<boolean> {
-				return adapter.exists(normalizePath(filePath));
+				return fs.existsSync(filePath);
 			},
 		};
 	}
@@ -215,8 +191,10 @@ export default class RemarkableSyncPlugin extends Plugin {
 		new Notice("reMarkable: Starting sync...");
 
 		try {
+			const vaultPath = this.getVaultPath();
 			const fileOps = this.getFileOps();
 			const manager = await SyncManager.create(
+				vaultPath,
 				this.settings.subfolder,
 				fileOps
 			);
