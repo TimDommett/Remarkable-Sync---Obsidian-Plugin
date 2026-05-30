@@ -39,14 +39,14 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 ## Privacy & data
 
 - This plugin connects to the **reMarkable Cloud API** (`*.remarkable.com`) to download your documents. No data is sent to any other service.
-- Authentication tokens are stored locally on your machine at `~/.remarkable-sync/token.json`, outside the Obsidian vault.
+- Authentication tokens are stored locally inside the plugin's own config folder (`<vault>/.obsidian/plugins/remarkable-sync/token.json`), separate from your note content.
 - No telemetry or analytics are collected.
 
 ## Authentication
 
 1. Go to https://my.remarkable.com/device/desktop/connect to get a one-time code
 2. Enter the code in the plugin settings (Obsidian Settings > reMarkable Sync)
-3. Auth tokens are stored locally at `~/.remarkable-sync/token.json`
+3. Auth tokens are stored locally at `<vault>/.obsidian/plugins/remarkable-sync/token.json`
 
 ## Usage
 

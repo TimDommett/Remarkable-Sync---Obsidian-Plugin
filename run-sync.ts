@@ -19,8 +19,8 @@ async function main() {
 	await client.init();
 	console.log('Authenticated:', client.isAuthenticated);
 
-	const vaultPath = path.resolve('.');
-	const manager = await SyncManager.create(vaultPath, 'reMarkable', fileOps);
+	const outputDir = path.join(path.resolve('.'), 'reMarkable');
+	const manager = await SyncManager.create(outputDir, fileOps);
 
 	console.log('Starting force sync...');
 	const results = await manager.sync(client, {
