@@ -1,0 +1,146 @@
+# AGENTS.md
+
+Guidance for AI coding agents (Cursor, Claude, Copilot, etc.) working in this
+repository. Human contributors may also find it a useful orientation.
+
+> This is the single source of truth for AI development guidance. `CLAUDE.md`
+> and any other tool-specific files should point here rather than duplicate it.
+
+## What this project is
+
+**reMarkable Sync for Obsidian** is a desktop-only Obsidian plugin that syncs
+documents from the reMarkable Cloud into an Obsidian vault as high-fidelity PDFs.
+It connects directly to the reMarkable Cloud API (sync v3 / "sync15" protocol),
+downloads document archives, parses reMarkable's binary `.rm` v6 format, and
+renders strokes + typed text to PDF — optionally merging with the original PDF
+background for annotated documents.
+
+- Language: **TypeScript** (bundled with esbuild, targeting CommonJS for Obsidian).
+- Runtime deps: `pdf-lib` (PDF creation) and `jszip` (ZIP reading).
+- Platform: **desktop Obsidian only** (`isDesktopOnly: true`) — it uses Node's
+  `fs` and Electron.
+
+## Repository layout
+
+```
+src/
+  main.ts                # Obsidian plugin entry point (commands, settings, sync orchestration glue)
+  cloud-client.ts        # reMarkable Cloud API client (auth + sync v3 protocol)
+  sync-manager.ts        # Sync orchestration, incremental state, sync logging
+  document-converter.ts  # ZIP archive -> PDF pipeline (jszip + pdf-lib)
+  rm-parser.ts           # Binary .rm v6 format parser (strokes + CRDT text), zero deps
+  pdf-renderer.ts        # Page -> PDF rendering via pdf-lib (calibrated colors/widths)
+  settings.ts            # Settings tab UI
+  constants.ts           # Shared constants
+  *.test.ts              # Node test-runner unit tests
+
+run-sync.ts              # Standalone CLI sync (no Obsidian) for end-to-end testing
+re-render.ts             # Re-render .rm files to PDF for comparison
+compare-reference-sheets.ts  # Compare rendered metadata vs ground truth
+compare-pixels.mjs       # Rasterized pixel comparison (MuPDF WASM)
+verify-coords.mjs        # Coordinate-mapping verification
+
+reference_sheets/        # GROUND TRUTH: PDFs exported from reMarkable + raw .rm sources
+release/remarkable-sync/ # Committed, pre-built plugin (main.js, manifest.json, styles.css)
+manifest.json            # Obsidian plugin manifest (source of truth for version)
+esbuild.config.mjs       # Bundler config
+tsconfig.json
+```
+
+## Architecture & key concepts
+
+- **`FileOps` / `FetchFn` abstractions** (`cloud-client.ts`): the core logic is
+  deliberately Obsidian-independent. File I/O and HTTP are injected as interfaces
+  so the same code runs under Node (the `run-sync.ts` CLI and unit tests) and
+  under Obsidian (`main.ts` provides Node `fs` ops + Obsidian `requestUrl`).
+  **Keep core modules free of direct `obsidian` imports.** Only `main.ts` and
+  `settings.ts` should import from `obsidian`.
+- **HTTP in the plugin uses Obsidian's `requestUrl`**, not `fetch`, to avoid CORS
+  restrictions. Tests/CLI inject native fetch.
+- **reMarkable sync v3 quirk:** blob requests to `/sync/v3/files/{hash}` require
+  an `rm-filename` header matching the blob's logical name (index blobs use the
+  `.docSchema` extension; content blobs use their real filename). Getting this
+  wrong returns HTTP 400. See `cloud-client.ts` and `cloud-client.test.ts` — this
+  is a regression-tested area, so don't change it casually.
+- **Auth tokens** are stored locally at `~/.remarkable-sync/token.json`, outside
+  the vault. Never write tokens or secrets into the vault.
+- **Incremental sync:** `sync-manager.ts` tracks synced documents (version + hash)
+  in `<sync folder>/.remarkable-sync-state.json` and skips unchanged docs.
+- **Sync logging:** each run writes a human-readable Markdown log to
+  `<sync folder>/_reMarkable Sync Log.md` (capped history, most-recent-first).
+  Logging must never break a sync — failures there are caught and ignored.
+
+## Rendering fidelity — handle with care
+
+`pdf-renderer.ts`, `rm-parser.ts`, and the coordinate/scale constants are
+**calibrated against real reMarkable PDF exports** in `reference_sheets/`.
+Colors, pen widths, opacity, font sizes, and the coordinate mapping
+(`.rm` canvas `1404x1872`, center-origin X → `514pt`-wide PDF) are tuned to match
+ground truth. If you touch any of this:
+
+1. Re-render and compare against `reference_sheets/` before/after.
+2. Use the comparison tooling: `npx tsx re-render.ts`,
+   `npx tsx compare-reference-sheets.ts`, `node compare-pixels.mjs`.
+3. Do not "simplify" magic constants (e.g. `SCALE`, `COORD_SCALE`, `WIDTH_FACTOR`,
+   the color map) without verifying the output still matches.
+
+## Build, test, and run
+
+```bash
+npm install            # install dependencies
+
+npm run build          # type-check (tsc -noEmit) + esbuild production bundle,
+                       # then copy manifest/styles into release/remarkable-sync/
+npm run dev            # esbuild watch mode (rebuilds on change)
+
+npm run test:unit      # unit tests: npx tsx --test src/cloud-client.test.ts
+npx tsx --test src/sync-manager.test.ts   # run a specific test file
+npm test               # end-to-end CLI sync (run-sync.ts) — needs real auth
+```
+
+Notes:
+- The bundle is emitted to `release/remarkable-sync/main.js` (see `esbuild.config.mjs`).
+- Type-checking uses `tsc -noEmit -skipLibCheck`; `strictNullChecks` and
+  `noImplicitAny` are on. Always ensure `npx tsc -noEmit -skipLibCheck` is clean.
+- Unit tests use the built-in Node test runner (`node:test` + `node:assert/strict`)
+  executed via `tsx`. Name new tests `src/<module>.test.ts`.
+- `npm test` (the CLI sync) performs a real network sync and requires a valid
+  token at `~/.remarkable-sync/token.json`; it is **not** a hermetic test.
+
+## Testing approach for agents
+
+- Prefer adding hermetic unit tests that exercise core logic via the `FileOps` /
+  `FetchFn` abstractions with in-memory/mocked implementations (see the existing
+  test files for the pattern). No network or real reMarkable account required.
+- You usually cannot run a real end-to-end sync (no credentials in CI/agent
+  environments). Validate logic with unit tests and `tsc`, and rendering changes
+  with the reference-sheet comparison tools.
+
+## Conventions
+
+- **Indentation: tabs** (match the existing files).
+- Keep modules cohesive and Obsidian-free outside `main.ts` / `settings.ts`.
+- Avoid adding heavy dependencies; the plugin bundles its runtime deps.
+- Comments should explain non-obvious intent/trade-offs, not narrate the code.
+- Match existing error-handling style: surface actionable messages to the user
+  via `Notice`, and record detail in the sync log.
+
+## Release artifacts
+
+`release/remarkable-sync/` contains the committed, pre-built plugin that users
+download. It is regenerated by `npm run build`. When making source-only PRs,
+prefer leaving these artifacts untouched (the maintainer regenerates them as part
+of releasing); the manifest version lives in `manifest.json`. Do not bump the
+version or rebuild artifacts unless that is the explicit goal of your change.
+
+## Git / PR etiquette
+
+- Use focused branches and keep unrelated changes in separate PRs.
+- Do not commit secrets, tokens, or anything from `~/.remarkable-sync/`.
+- `node_modules/` and `test_output/` are gitignored.
+
+## Useful references
+
+- reMarkable `.rm` v6 format and CRDT text decoding are implemented from scratch
+  in `rm-parser.ts` (inspired by the `rmscene` project — see `THIRD-PARTY-NOTICES`).
+- Obsidian plugin API: https://docs.obsidian.md/
