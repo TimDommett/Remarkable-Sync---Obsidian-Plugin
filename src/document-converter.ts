@@ -7,7 +7,6 @@
  * 3. Render to PDF with optional background
  */
 
-import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { parseRmFile, type Page } from "./rm-parser";
 import { renderPageToPdf, renderNotebookToPdf } from "./pdf-renderer";
@@ -35,27 +34,32 @@ export interface DocumentContent {
 
 export class DocumentConverter {
 	private docId: string;
-	private zipData: Uint8Array;
+	private files: Map<string, Uint8Array>;
 	private content: DocumentContent | null = null;
 	private contentInfo: Record<string, any> = {};
 
-	constructor(docId: string, zipData: Uint8Array) {
+	constructor(docId: string, files: Map<string, Uint8Array>) {
 		this.docId = docId;
-		this.zipData = zipData;
+		this.files = files;
+	}
+
+	private textOf(name: string): string {
+		const data = this.files.get(name);
+		if (!data) return "";
+		return new TextDecoder().decode(data);
 	}
 
 	async parse(): Promise<DocumentContent> {
 		if (this.content) return this.content;
 
-		const zip = await JSZip.loadAsync(this.zipData);
-		const fileList = Object.keys(zip.files);
+		const fileList = Array.from(this.files.keys());
 
-		const metadata = await this.readMetadata(zip);
-		this.contentInfo = await this.readContentInfo(zip);
+		const metadata = this.readMetadata(fileList);
+		this.contentInfo = this.readContentInfo(fileList);
 		const docType = this.determineDocType(this.contentInfo, fileList);
-		const pages = await this.extractPages(zip, this.contentInfo);
-		const originalPdf = await this.extractOriginalPdf(zip, fileList);
-		const originalEpub = await this.extractOriginalEpub(zip, fileList);
+		const pages = this.extractPages(fileList, this.contentInfo);
+		const originalPdf = this.extractOriginalPdf(fileList);
+		const originalEpub = this.extractOriginalEpub(fileList);
 
 		this.content = {
 			docId: this.docId,
@@ -138,14 +142,13 @@ export class DocumentConverter {
 		return renderNotebookToPdf(parsedPages, backgroundPdfs);
 	}
 
-	// --- ZIP processing ---
+	// --- Archive processing ---
 
-	private async readMetadata(zip: JSZip): Promise<Record<string, any>> {
-		for (const name of Object.keys(zip.files)) {
+	private readMetadata(fileList: string[]): Record<string, any> {
+		for (const name of fileList) {
 			if (name.endsWith(".metadata")) {
 				try {
-					const text = await zip.files[name].async("text");
-					return JSON.parse(text);
+					return JSON.parse(this.textOf(name));
 				} catch {
 					// ignore
 				}
@@ -154,12 +157,11 @@ export class DocumentConverter {
 		return {};
 	}
 
-	private async readContentInfo(zip: JSZip): Promise<Record<string, any>> {
-		for (const name of Object.keys(zip.files)) {
+	private readContentInfo(fileList: string[]): Record<string, any> {
+		for (const name of fileList) {
 			if (name.endsWith(".content")) {
 				try {
-					const text = await zip.files[name].async("text");
-					return JSON.parse(text);
+					return JSON.parse(this.textOf(name));
 				} catch {
 					// ignore
 				}
@@ -182,11 +184,10 @@ export class DocumentConverter {
 		return "notebook";
 	}
 
-	private async extractPages(
-		zip: JSZip,
+	private extractPages(
+		fileList: string[],
 		contentInfo: Record<string, any>
-	): Promise<PageInfo[]> {
-		const fileList = Object.keys(zip.files);
+	): PageInfo[] {
 		let pageIds: string[] = contentInfo.pages ?? [];
 
 		// Check cPages (newer format) and extract per-page metadata
@@ -227,11 +228,7 @@ export class DocumentConverter {
 			// Find .rm file
 			for (const name of fileList) {
 				if (name.endsWith(`${pageId}.rm`)) {
-					try {
-						pageInfo.rmData = await zip.files[name].async("uint8array");
-					} catch {
-						// ignore
-					}
+					pageInfo.rmData = this.files.get(name) ?? null;
 					break;
 				}
 			}
@@ -240,8 +237,7 @@ export class DocumentConverter {
 			for (const name of fileList) {
 				if (name.includes(`${pageId}-metadata.json`)) {
 					try {
-						const text = await zip.files[name].async("text");
-						const meta = JSON.parse(text);
+						const meta = JSON.parse(this.textOf(name));
 						pageInfo.template = meta.template ?? null;
 					} catch {
 						// ignore
@@ -257,12 +253,8 @@ export class DocumentConverter {
 			for (const name of fileList) {
 				if (name.endsWith(".rm")) {
 					const stem = name.replace(/^.*\//, "").replace(/\.rm$/, "");
-					try {
-						const rmData = await zip.files[name].async("uint8array");
-						pages.push({ pageId: stem, rmData, template: null, verticalScroll: null });
-					} catch {
-						// ignore
-					}
+					const rmData = this.files.get(name) ?? null;
+					pages.push({ pageId: stem, rmData, template: null, verticalScroll: null });
 				}
 			}
 		}
@@ -270,33 +262,19 @@ export class DocumentConverter {
 		return pages;
 	}
 
-	private async extractOriginalPdf(
-		zip: JSZip,
-		fileList: string[]
-	): Promise<Uint8Array | null> {
+	private extractOriginalPdf(fileList: string[]): Uint8Array | null {
 		for (const name of fileList) {
 			if (name.endsWith(".pdf") && !name.endsWith("-metadata.pdf")) {
-				try {
-					return await zip.files[name].async("uint8array");
-				} catch {
-					// ignore
-				}
+				return this.files.get(name) ?? null;
 			}
 		}
 		return null;
 	}
 
-	private async extractOriginalEpub(
-		zip: JSZip,
-		fileList: string[]
-	): Promise<Uint8Array | null> {
+	private extractOriginalEpub(fileList: string[]): Uint8Array | null {
 		for (const name of fileList) {
 			if (name.endsWith(".epub")) {
-				try {
-					return await zip.files[name].async("uint8array");
-				} catch {
-					// ignore
-				}
+				return this.files.get(name) ?? null;
 			}
 		}
 		return null;
@@ -333,8 +311,8 @@ function emptyPage(pageId: string): Page {
 
 export async function convertDocument(
 	docId: string,
-	zipData: Uint8Array
+	files: Map<string, Uint8Array>
 ): Promise<Uint8Array> {
-	const converter = new DocumentConverter(docId, zipData);
+	const converter = new DocumentConverter(docId, files);
 	return converter.convertToPdf();
 }

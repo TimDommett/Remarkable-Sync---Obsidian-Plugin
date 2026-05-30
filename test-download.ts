@@ -41,11 +41,15 @@ async function main() {
 	const docPath = paths.get(match.id) ?? match.name;
 	console.log(`\nDownloading: ${docPath} (${match.id})`);
 
-	const zipData = await client.downloadDocument(match.id);
-	const outFile = `test-download-${match.id.slice(0, 8)}.zip`;
-	await fs.promises.writeFile(outFile, zipData);
-	console.log(`\nSaved ZIP to: ${outFile}`);
-	console.log(`Inspect with: unzip -l ${outFile}`);
+	const files = await client.downloadDocument(match.id);
+	const outDir = `test-download-${match.id.slice(0, 8)}`;
+	await fs.promises.mkdir(outDir, { recursive: true });
+	for (const [name, data] of files) {
+		const safeName = name.replace(/[/\\]/g, "_");
+		await fs.promises.writeFile(path.join(outDir, safeName), data);
+	}
+	console.log(`\nSaved ${files.size} file(s) to: ${outDir}/`);
+	console.log(`Inspect with: ls -l ${outDir}`);
 }
 
 main().catch(e => { console.error('FATAL:', e.message, e.stack); process.exit(1); });

@@ -114,8 +114,8 @@ test("downloadDocument requests content blobs with their real filenames", async 
 	const client = new RemarkableCloudClient("/cfg", mockFileOps(), makeFetch(calls));
 	await client.init();
 
-	const zip = await client.downloadDocument(DOC_UUID);
-	assert.ok(zip.length > 0);
+	const files = await client.downloadDocument(DOC_UUID);
+	assert.ok(files.size > 0);
 
 	const contentCall = calls.find(
 		(c) => c.url === `${SYNC_HOST}/sync/v3/files/${META_HASH}`
