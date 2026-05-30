@@ -1,8 +1,8 @@
-import { FileSystemAdapter, Notice, Plugin, requestUrl } from "obsidian";
+import { FileSystemAdapter, Notice, Plugin, TFile, requestUrl } from "obsidian";
 import { RemarkableSyncSettings, DEFAULT_SETTINGS, RemarkableSyncSettingTab } from "./settings";
 import { RemarkableCloudClient, type FileOps, type FetchFn, type FetchResponse } from "./cloud-client";
 import { SyncManager } from "./sync-manager";
-import { SYNC_INTERVALS } from "./constants";
+import { SYNC_INTERVALS, SYNC_LOG_FILENAME } from "./constants";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -50,6 +50,12 @@ export default class RemarkableSyncPlugin extends Plugin {
 			id: "check-status",
 			name: "Check sync status",
 			callback: () => this.refreshAuthStatus(),
+		});
+
+		this.addCommand({
+			id: "open-sync-log",
+			name: "Open sync log",
+			callback: () => this.openSyncLog(),
 		});
 
 		this.addCommand({
@@ -202,16 +208,32 @@ export default class RemarkableSyncPlugin extends Plugin {
 			const results = await manager.sync(this.client, {
 				folderFilter: this.settings.folderFilter || undefined,
 				force,
+				writeLog: this.settings.writeSyncLog,
+				logFileName: SYNC_LOG_FILENAME,
 			});
 
 			this.settings.lastSyncTime = new Date().toISOString();
 			await this.saveSettings();
 
 			if (results.errors.length > 0) {
+				// Surface the first few error messages directly so users get
+				// immediate, actionable detail without opening the log.
+				const preview = results.errors
+					.slice(0, 3)
+					.map((e) => `• ${e}`)
+					.join("\n");
+				const more =
+					results.errors.length > 3
+						? `\n…and ${results.errors.length - 3} more.`
+						: "";
+				const logHint = this.settings.writeSyncLog
+					? `\nSee "${SYNC_LOG_FILENAME}" for full details.`
+					: "";
 				new Notice(
 					`reMarkable sync completed with errors.\n` +
-					`Synced: ${results.synced.length}, Skipped: ${results.skipped.length}, Errors: ${results.errors.length}`,
-					10000
+					`Synced: ${results.synced.length}, Skipped: ${results.skipped.length}, Errors: ${results.errors.length}\n` +
+					`${preview}${more}${logHint}`,
+					15000
 				);
 			} else if (results.synced.length > 0) {
 				new Notice(
@@ -231,6 +253,18 @@ export default class RemarkableSyncPlugin extends Plugin {
 			this.isSyncing = false;
 			this.updateStatusBar();
 		}
+	}
+
+	async openSyncLog(): Promise<void> {
+		const relPath = `${this.settings.subfolder}/${SYNC_LOG_FILENAME}`;
+		const file = this.app.vault.getAbstractFileByPath(relPath);
+		if (file instanceof TFile) {
+			await this.app.workspace.getLeaf(true).openFile(file);
+			return;
+		}
+		new Notice(
+			"No sync log found yet. Run a sync first (with 'Write sync log' enabled)."
+		);
 	}
 
 	private updateStatusBar(override?: string): void {

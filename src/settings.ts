@@ -1,6 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type RemarkableSyncPlugin from "./main";
-import { SYNC_INTERVALS, AUTH_URL, DEFAULT_SUBFOLDER } from "./constants";
+import { SYNC_INTERVALS, AUTH_URL, DEFAULT_SUBFOLDER, SYNC_LOG_FILENAME } from "./constants";
 
 export interface RemarkableSyncSettings {
 	subfolder: string;
@@ -8,6 +8,7 @@ export interface RemarkableSyncSettings {
 	folderFilter: string;
 	lastSyncTime: string;
 	isAuthenticated: boolean;
+	writeSyncLog: boolean;
 }
 
 export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
@@ -16,6 +17,7 @@ export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
 	folderFilter: "",
 	lastSyncTime: "",
 	isAuthenticated: false,
+	writeSyncLog: true,
 };
 
 export class RemarkableSyncSettingTab extends PluginSettingTab {
@@ -167,6 +169,32 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 				btn.setButtonText("Check").onClick(async () => {
 					await this.plugin.refreshAuthStatus();
 					this.display();
+				})
+			);
+
+		// --- Troubleshooting ---
+		containerEl.createEl("h2", { text: "Troubleshooting" });
+
+		new Setting(containerEl)
+			.setName("Write sync log")
+			.setDesc(
+				`Save a detailed log of each sync (including any errors) to "${this.plugin.settings.subfolder}/${SYNC_LOG_FILENAME}". Useful for diagnosing sync failures.`
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.writeSyncLog)
+					.onChange(async (value) => {
+						this.plugin.settings.writeSyncLog = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Open sync log")
+			.setDesc("Open the most recent sync log to review details and errors.")
+			.addButton((btn) =>
+				btn.setButtonText("Open log").onClick(async () => {
+					await this.plugin.openSyncLog();
 				})
 			);
 

@@ -9,3 +9,10 @@ export const SYNC_INTERVALS: Record<string, number> = {
 };
 
 export const AUTH_URL = "https://my.remarkable.com/device/desktop/connect";
+
+// Filename of the human-readable sync log written into the sync subfolder.
+// The leading underscore keeps it sorted to the top and signals it is special.
+export const SYNC_LOG_FILENAME = "_reMarkable Sync Log.md";
+
+// Cap the on-disk log so it can't grow without bound across many sync runs.
+export const SYNC_LOG_MAX_BYTES = 250_000;

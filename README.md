@@ -62,6 +62,23 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 | Sync folder | `reMarkable/` | Subfolder in your vault for synced documents |
 | Auto-sync | Off | Sync automatically on a timer |
 | Sync interval | 5 min | How often to auto-sync |
+| Write sync log | On | Save a detailed log of each sync (including errors) |
+
+## Troubleshooting
+
+If a sync reports errors (e.g. `Synced: 0, Skipped: 7, Errors: 59`), the plugin
+keeps a detailed log so you can see exactly what failed and why.
+
+- A Markdown log is written to `<sync folder>/_reMarkable Sync Log.md` after every
+  sync. Each run records a summary, the full list of per-document errors with their
+  messages, and a collapsible activity trace.
+- Open it quickly via the **Open log** button in settings (Troubleshooting section)
+  or the **reMarkable Sync: Open sync log** command.
+- The first few error messages are also shown directly in the sync notification.
+- You can disable log writing with the **Write sync log** setting.
+
+When reporting a bug, please include the relevant section of this log — it contains
+the specific error messages needed to diagnose sync failures.
 
 ## Development
 
