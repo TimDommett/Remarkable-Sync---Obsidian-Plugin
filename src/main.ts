@@ -52,16 +52,6 @@ export default class RemarkableSyncPlugin extends Plugin {
 			callback: () => this.refreshAuthStatus(),
 		});
 
-		this.addCommand({
-			id: "open-settings",
-			name: "Open reMarkable Sync settings",
-			callback: () => {
-				const setting = (this.app as any).setting;
-				setting.open();
-				setting.openTabById(this.manifest.id);
-			},
-		});
-
 		// Settings tab
 		this.addSettingTab(new RemarkableSyncSettingTab(this.app, this));
 
