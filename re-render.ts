@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseRmFile } from './src/rm-parser';
 import { renderPageToPdf, renderNotebookToPdf } from './src/pdf-renderer';
+import { extendPageHeightForContent } from './src/document-converter';
 
 const REF_DIR = 'reference_sheets';
 const OUTPUT_DIR = 'reMarkable/RefrenceSheets';
@@ -37,21 +38,8 @@ async function main() {
 				const data = fs.readFileSync(path.join(dir, rmFile));
 				const page = parseRmFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
 
-				// Auto-detect extended pages (same logic as DocumentConverter)
-				const defaultHeight = page.height; // 1872
-				const threshold = defaultHeight * 1.05;
-				let maxY = 0;
-				for (const layer of page.layers) {
-					for (const stroke of layer.strokes) {
-						for (const pt of stroke.points) {
-							if (pt.y > maxY) maxY = pt.y;
-						}
-					}
-				}
-				const scaledHeight = maxY * 0.885;
-				if (scaledHeight > threshold) {
-					page.height = scaledHeight;
-				}
+				// Auto-detect and extend long pages (shared with DocumentConverter)
+				await extendPageHeightForContent(page);
 
 				pages.push(page);
 			}

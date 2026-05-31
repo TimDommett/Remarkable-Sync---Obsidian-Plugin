@@ -14,6 +14,7 @@ import {
 	isDocument,
 } from "./cloud-client";
 import { convertDocument } from "./document-converter";
+import { SYNC_LOG_FILENAME, SYNC_LOG_MAX_BYTES } from "./constants";
 
 // --- Sync state ---
 
@@ -63,10 +64,25 @@ export class SyncState {
 
 // --- Sync results ---
 
+export interface SyncErrorDetail {
+	docId: string;
+	path: string;
+	message: string;
+}
+
 export interface SyncResults {
 	synced: string[];
 	skipped: string[];
 	errors: string[];
+	/** Structured per-document failures (richer than the `errors` strings). */
+	errorDetails: SyncErrorDetail[];
+	/** Timestamped activity lines captured during the run. */
+	log: string[];
+	startedAt: string;
+	finishedAt: string;
+	durationMs: number;
+	/** Vault-relative path of the log file written for this run, if any. */
+	logPath: string | null;
 }
 
 export type ProgressCallback = (message: string) => void;
@@ -79,6 +95,10 @@ export interface SyncOptions {
 	dryRun?: boolean;
 	subfolder?: string;
 	onProgress?: ProgressCallback;
+	/** Write a human-readable log file into the sync folder (default: true). */
+	writeLog?: boolean;
+	/** Override the log filename (default: SYNC_LOG_FILENAME). */
+	logFileName?: string;
 }
 
 export class SyncManager {
@@ -95,8 +115,8 @@ export class SyncManager {
 		state: SyncState
 	) {
 		this.vaultPath = vaultPath;
-		this.outputDir = vaultPath + "/" + subfolder;
-		this.stateFile = this.outputDir + "/.remarkable-sync-state.json";
+		this.outputDir = joinPath(vaultPath, subfolder);
+		this.stateFile = joinPath(this.outputDir, ".remarkable-sync-state.json");
 		this.fileOps = fileOps;
 		this.state = state;
 	}
@@ -106,8 +126,8 @@ export class SyncManager {
 		subfolder: string,
 		fileOps: FileOps
 	): Promise<SyncManager> {
-		const outputDir = vaultPath + "/" + subfolder;
-		const stateFile = outputDir + "/.remarkable-sync-state.json";
+		const outputDir = joinPath(vaultPath, subfolder);
+		const stateFile = joinPath(outputDir, ".remarkable-sync-state.json");
 		const state = await SyncState.load(stateFile, fileOps);
 		return new SyncManager(vaultPath, subfolder, fileOps, state);
 	}
@@ -116,17 +136,59 @@ export class SyncManager {
 		client: RemarkableCloudClient,
 		opts: SyncOptions = {}
 	): Promise<SyncResults> {
-		const results: SyncResults = { synced: [], skipped: [], errors: [] };
-		const progress = opts.onProgress ?? (() => {});
+		const startMs = Date.now();
+		const results: SyncResults = {
+			synced: [],
+			skipped: [],
+			errors: [],
+			errorDetails: [],
+			log: [],
+			startedAt: new Date().toISOString(),
+			finishedAt: "",
+			durationMs: 0,
+			logPath: null,
+		};
+		const writeLog = opts.writeLog ?? true;
+		const logFileName = opts.logFileName ?? SYNC_LOG_FILENAME;
+
+		// Capture every progress line into the run log, then forward to the caller.
+		const userProgress = opts.onProgress ?? (() => {});
+		const progress = (message: string) => {
+			results.log.push(`[${new Date().toISOString()}] ${message}`);
+			userProgress(message);
+		};
+
+		const finalize = async (): Promise<void> => {
+			results.finishedAt = new Date().toISOString();
+			results.durationMs = Date.now() - startMs;
+			if (writeLog) {
+				try {
+					results.logPath = await this.writeRunLog(results, logFileName);
+				} catch (e) {
+					// Never let logging failures break a sync.
+					userProgress(`(could not write sync log: ${(e as Error).message})`);
+				}
+			}
+		};
 
 		if (!client.isAuthenticated) {
-			throw new Error(
-				"Not authenticated. Please register with reMarkable first."
-			);
+			const message =
+				"Not authenticated. Please register with reMarkable first.";
+			progress(`[FAIL] ${message}`);
+			await finalize();
+			throw new Error(message);
 		}
 
 		progress("Fetching document list from reMarkable cloud...");
-		const documents = await client.listDocuments();
+		let documents: DocumentMetadata[];
+		try {
+			documents = await client.listDocuments();
+		} catch (e) {
+			const message = (e as Error).message;
+			progress(`[FAIL] Could not list documents: ${message}`);
+			await finalize();
+			throw e;
+		}
 		const folderPaths = buildFolderTree(documents);
 
 		// Filter to documents only
@@ -162,16 +224,65 @@ export class SyncManager {
 				results.synced.push(docPath);
 				progress(`[OK] Synced: ${docPath}`);
 			} catch (e) {
-				const msg = `${docPath}: ${(e as Error).message}`;
-				results.errors.push(msg);
-				progress(`[FAIL] Error: ${msg}`);
+				const message = (e as Error).message;
+				results.errors.push(`${docPath}: ${message}`);
+				results.errorDetails.push({
+					docId: doc.id,
+					path: docPath,
+					message,
+				});
+				progress(`[FAIL] Error: ${docPath}: ${message}`);
 			}
 		}
 
 		this.state.lastSync = new Date().toISOString();
 		await this.state.save(this.stateFile, this.fileOps);
 
+		progress(
+			`Sync finished — ${results.synced.length} synced, ` +
+				`${results.skipped.length} skipped, ${results.errors.length} errors`
+		);
+
+		await finalize();
+
 		return results;
+	}
+
+	/**
+	 * Write a human-readable Markdown log of the latest run into the sync folder.
+	 * Keeps a capped history of previous runs so users can troubleshoot failures.
+	 * Returns the vault-relative path of the log file.
+	 */
+	private async writeRunLog(
+		results: SyncResults,
+		fileName: string
+	): Promise<string> {
+		const logFilePath = joinPath(this.outputDir, fileName);
+
+		let previous = "";
+		try {
+			previous = (await this.fileOps.readFile(logFilePath)) ?? "";
+		} catch {
+			previous = "";
+		}
+		previous = stripLogHeader(previous).trim();
+
+		const section = formatRunSection(results);
+		let body = previous ? section + "\n\n" + previous : section;
+		if (body.length > SYNC_LOG_MAX_BYTES) {
+			body =
+				body.slice(0, SYNC_LOG_MAX_BYTES) +
+				"\n\n_…older log entries truncated…_\n";
+		}
+
+		const content = LOG_HEADER + body + "\n";
+
+		if (this.outputDir) await this.fileOps.mkdir(this.outputDir);
+		await this.fileOps.writeFile(logFilePath, content);
+
+		return logFilePath.startsWith(this.vaultPath + "/")
+			? logFilePath.substring(this.vaultPath.length + 1)
+			: logFilePath;
 	}
 
 	private async syncDocument(
@@ -188,11 +299,11 @@ export class SyncManager {
 
 		// Sanitize path for Windows
 		const safePath = docPath.replace(/[<>:"|?*]/g, "_");
-		const outputPath = this.outputDir + "/" + safePath + ".pdf";
+		const outputPath = joinPath(this.outputDir, safePath + ".pdf");
 
 		// Ensure parent directory exists
 		const parentDir = outputPath.substring(0, outputPath.lastIndexOf("/"));
-		await this.fileOps.mkdir(parentDir);
+		if (parentDir) await this.fileOps.mkdir(parentDir);
 
 		// Write PDF
 		await this.fileOps.writeBinaryFile(outputPath, pdfData);
@@ -247,7 +358,80 @@ export class SyncManager {
 	}
 }
 
+// --- Log formatting ---
+
+const LOG_HEADER =
+	"# reMarkable Sync Log\n\n" +
+	"_Auto-generated by the reMarkable Sync plugin. Most recent run first._\n\n";
+
+/** Remove the standard header so previous runs can be re-appended cleanly. */
+function stripLogHeader(content: string): string {
+	if (content.startsWith(LOG_HEADER)) {
+		return content.slice(LOG_HEADER.length);
+	}
+	// Fall back to dropping the first heading line if present.
+	const idx = content.indexOf("## ");
+	return idx >= 0 ? content.slice(idx) : content;
+}
+
+/** Build the Markdown section for a single sync run. */
+function formatRunSection(results: SyncResults): string {
+	const seconds = (results.durationMs / 1000).toFixed(1);
+	const lines: string[] = [];
+
+	lines.push(`## Sync ${results.startedAt}`);
+	lines.push("");
+	lines.push(
+		`- **Result:** ${results.synced.length} synced, ` +
+			`${results.skipped.length} skipped, ${results.errors.length} errors`
+	);
+	lines.push(`- **Duration:** ${seconds}s`);
+	lines.push("");
+
+	if (results.errorDetails.length > 0) {
+		lines.push(`### Errors (${results.errorDetails.length})`);
+		lines.push("");
+		for (const err of results.errorDetails) {
+			lines.push(`- \`${err.path}\` — ${err.message}`);
+		}
+		lines.push("");
+	}
+
+	if (results.synced.length > 0) {
+		lines.push(`### Synced (${results.synced.length})`);
+		lines.push("");
+		for (const path of results.synced) {
+			lines.push(`- \`${path}\``);
+		}
+		lines.push("");
+	}
+
+	lines.push("<details>");
+	lines.push(`<summary>Activity (${results.log.length} lines)</summary>`);
+	lines.push("");
+	lines.push("```");
+	for (const line of results.log) {
+		lines.push(line);
+	}
+	lines.push("```");
+	lines.push("");
+	lines.push("</details>");
+	lines.push("");
+
+	return lines.join("\n");
+}
+
 // --- Utilities ---
+
+// Join a base directory and a child path. The base may be empty — used when
+// the file ops are vault-relative (Obsidian) — in which case the child is
+// returned as-is, avoiding a spurious leading "/". A non-empty base (e.g. the
+// CLI's absolute output dir) is joined with a single separator.
+function joinPath(base: string, child: string): string {
+	if (!base) return child;
+	if (!child) return base;
+	return base.replace(/\/+$/, "") + "/" + child;
+}
 
 function simpleHash(data: Uint8Array): string {
 	// Simple FNV-1a hash as a hex string (not cryptographic, just for change detection)
@@ -258,4 +442,3 @@ function simpleHash(data: Uint8Array): string {
 	}
 	return (hash >>> 0).toString(16).padStart(8, "0");
 }
-

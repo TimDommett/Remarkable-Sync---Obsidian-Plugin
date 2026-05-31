@@ -7,10 +7,13 @@
  * 3. Render to PDF with optional background
  */
 
-import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { parseRmFile, type Page } from "./rm-parser";
-import { renderPageToPdf, renderNotebookToPdf } from "./pdf-renderer";
+import {
+	renderPageToPdf,
+	renderNotebookToPdf,
+	computeTextBlocksBottomRawY,
+} from "./pdf-renderer";
 
 // --- Data structures ---
 
@@ -35,27 +38,32 @@ export interface DocumentContent {
 
 export class DocumentConverter {
 	private docId: string;
-	private zipData: Uint8Array;
+	private files: Map<string, Uint8Array>;
 	private content: DocumentContent | null = null;
 	private contentInfo: Record<string, any> = {};
 
-	constructor(docId: string, zipData: Uint8Array) {
+	constructor(docId: string, files: Map<string, Uint8Array>) {
 		this.docId = docId;
-		this.zipData = zipData;
+		this.files = files;
+	}
+
+	private textOf(name: string): string {
+		const data = this.files.get(name);
+		if (!data) return "";
+		return new TextDecoder().decode(data);
 	}
 
 	async parse(): Promise<DocumentContent> {
 		if (this.content) return this.content;
 
-		const zip = await JSZip.loadAsync(this.zipData);
-		const fileList = Object.keys(zip.files);
+		const fileList = Array.from(this.files.keys());
 
-		const metadata = await this.readMetadata(zip);
-		this.contentInfo = await this.readContentInfo(zip);
+		const metadata = this.readMetadata(fileList);
+		this.contentInfo = this.readContentInfo(fileList);
 		const docType = this.determineDocType(this.contentInfo, fileList);
-		const pages = await this.extractPages(zip, this.contentInfo);
-		const originalPdf = await this.extractOriginalPdf(zip, fileList);
-		const originalEpub = await this.extractOriginalEpub(zip, fileList);
+		const pages = this.extractPages(fileList, this.contentInfo);
+		const originalPdf = this.extractOriginalPdf(fileList);
+		const originalEpub = this.extractOriginalEpub(fileList);
 
 		this.content = {
 			docId: this.docId,
@@ -74,7 +82,10 @@ export class DocumentConverter {
 		const content = await this.parse();
 
 		if (content.pages.length === 0) {
-			throw new Error("No pages found in document");
+			throw new Error(
+				`No pages found in document (type: ${content.docType}). ` +
+					`Documents with no rendered pages cannot be converted to PDF.`
+			);
 		}
 
 		const parsedPages: Page[] = [];
@@ -91,26 +102,11 @@ export class DocumentConverter {
 					));
 					page.pageId = pageInfo.pageId;
 
-					// Extend page height for vertically scrolled pages.
-					// The 0.885 scale factor accounts for the difference between
-					// raw stroke coordinate bounds and reMarkable's export bounds.
-					// Only extend if content significantly exceeds the default height.
-					if (pageInfo.verticalScroll != null) {
-						const defaultHeight = page.height; // 1872
-						const threshold = defaultHeight * 1.05;
-						let maxY = 0;
-						for (const layer of page.layers) {
-							for (const stroke of layer.strokes) {
-								for (const pt of stroke.points) {
-									if (pt.y > maxY) maxY = pt.y;
-								}
-							}
-						}
-						const scaledHeight = maxY * 0.885;
-						if (scaledHeight > threshold) {
-							page.height = scaledHeight;
-						}
-					}
+					// Extend the page height when stroke OR typed-text content
+					// runs past the default page bounds (long / vertically
+					// scrolled pages) so it is not clipped. See
+					// extendPageHeightForContent.
+					await extendPageHeightForContent(page);
 
 					parsedPages.push(page);
 				} catch {
@@ -138,14 +134,13 @@ export class DocumentConverter {
 		return renderNotebookToPdf(parsedPages, backgroundPdfs);
 	}
 
-	// --- ZIP processing ---
+	// --- Archive processing ---
 
-	private async readMetadata(zip: JSZip): Promise<Record<string, any>> {
-		for (const name of Object.keys(zip.files)) {
+	private readMetadata(fileList: string[]): Record<string, any> {
+		for (const name of fileList) {
 			if (name.endsWith(".metadata")) {
 				try {
-					const text = await zip.files[name].async("text");
-					return JSON.parse(text);
+					return JSON.parse(this.textOf(name));
 				} catch {
 					// ignore
 				}
@@ -154,12 +149,11 @@ export class DocumentConverter {
 		return {};
 	}
 
-	private async readContentInfo(zip: JSZip): Promise<Record<string, any>> {
-		for (const name of Object.keys(zip.files)) {
+	private readContentInfo(fileList: string[]): Record<string, any> {
+		for (const name of fileList) {
 			if (name.endsWith(".content")) {
 				try {
-					const text = await zip.files[name].async("text");
-					return JSON.parse(text);
+					return JSON.parse(this.textOf(name));
 				} catch {
 					// ignore
 				}
@@ -182,11 +176,10 @@ export class DocumentConverter {
 		return "notebook";
 	}
 
-	private async extractPages(
-		zip: JSZip,
+	private extractPages(
+		fileList: string[],
 		contentInfo: Record<string, any>
-	): Promise<PageInfo[]> {
-		const fileList = Object.keys(zip.files);
+	): PageInfo[] {
 		let pageIds: string[] = contentInfo.pages ?? [];
 
 		// Check cPages (newer format) and extract per-page metadata
@@ -227,11 +220,7 @@ export class DocumentConverter {
 			// Find .rm file
 			for (const name of fileList) {
 				if (name.endsWith(`${pageId}.rm`)) {
-					try {
-						pageInfo.rmData = await zip.files[name].async("uint8array");
-					} catch {
-						// ignore
-					}
+					pageInfo.rmData = this.files.get(name) ?? null;
 					break;
 				}
 			}
@@ -240,8 +229,7 @@ export class DocumentConverter {
 			for (const name of fileList) {
 				if (name.includes(`${pageId}-metadata.json`)) {
 					try {
-						const text = await zip.files[name].async("text");
-						const meta = JSON.parse(text);
+						const meta = JSON.parse(this.textOf(name));
 						pageInfo.template = meta.template ?? null;
 					} catch {
 						// ignore
@@ -257,12 +245,8 @@ export class DocumentConverter {
 			for (const name of fileList) {
 				if (name.endsWith(".rm")) {
 					const stem = name.replace(/^.*\//, "").replace(/\.rm$/, "");
-					try {
-						const rmData = await zip.files[name].async("uint8array");
-						pages.push({ pageId: stem, rmData, template: null, verticalScroll: null });
-					} catch {
-						// ignore
-					}
+					const rmData = this.files.get(name) ?? null;
+					pages.push({ pageId: stem, rmData, template: null, verticalScroll: null });
 				}
 			}
 		}
@@ -270,33 +254,19 @@ export class DocumentConverter {
 		return pages;
 	}
 
-	private async extractOriginalPdf(
-		zip: JSZip,
-		fileList: string[]
-	): Promise<Uint8Array | null> {
+	private extractOriginalPdf(fileList: string[]): Uint8Array | null {
 		for (const name of fileList) {
 			if (name.endsWith(".pdf") && !name.endsWith("-metadata.pdf")) {
-				try {
-					return await zip.files[name].async("uint8array");
-				} catch {
-					// ignore
-				}
+				return this.files.get(name) ?? null;
 			}
 		}
 		return null;
 	}
 
-	private async extractOriginalEpub(
-		zip: JSZip,
-		fileList: string[]
-	): Promise<Uint8Array | null> {
+	private extractOriginalEpub(fileList: string[]): Uint8Array | null {
 		for (const name of fileList) {
 			if (name.endsWith(".epub")) {
-				try {
-					return await zip.files[name].async("uint8array");
-				} catch {
-					// ignore
-				}
+				return this.files.get(name) ?? null;
 			}
 		}
 		return null;
@@ -320,6 +290,46 @@ export class DocumentConverter {
 	}
 }
 
+// Extend the page height when stroke OR typed-text content runs past the default
+// page bounds (long / vertically scrolled pages) so it is not clipped in the
+// rendered PDF. This is content-driven and independent of the optional
+// `verticalScroll` metadata — long pages that lack it would otherwise be
+// silently truncated.
+//
+// Both strokes and typed text are reduced to a single `maxY` in raw-Y units:
+// strokes contribute their lowest point directly, while a text block's rendered
+// bottom is `posY + renderedHeightPt / COORD_SCALE` (see
+// computeTextBlocksBottomRawY). This matters most for mixed pages where the
+// typed text sits BELOW where the strokes end — previously only strokes were
+// measured, so that text was cut off.
+//
+// Pages whose content stays within the default height are left untouched, so it
+// can never affect normal single-screen pages (maxY only ever grows, and the
+// height is reassigned only when it exceeds the threshold). The 0.885 factor
+// maps raw coordinate bounds to reMarkable's export bounds (calibrated against
+// reference_sheets/). Shared with the re-render.ts reference tool so both paths
+// stay in sync.
+export async function extendPageHeightForContent(page: Page): Promise<void> {
+	const defaultHeight = page.height; // 1872 for standard pages
+	const threshold = defaultHeight * 1.05;
+	let maxY = 0;
+	for (const layer of page.layers) {
+		for (const stroke of layer.strokes) {
+			for (const pt of stroke.points) {
+				if (pt.y > maxY) maxY = pt.y;
+			}
+		}
+	}
+	// Typed text is positioned independently of strokes and can extend below
+	// them (or below the default height); fold its rendered bottom into maxY.
+	const textBottomRawY = await computeTextBlocksBottomRawY(page);
+	if (textBottomRawY > maxY) maxY = textBottomRawY;
+	const scaledHeight = maxY * 0.885;
+	if (scaledHeight > threshold) {
+		page.height = scaledHeight;
+	}
+}
+
 function emptyPage(pageId: string): Page {
 	return {
 		pageId,
@@ -333,8 +343,8 @@ function emptyPage(pageId: string): Page {
 
 export async function convertDocument(
 	docId: string,
-	zipData: Uint8Array
+	files: Map<string, Uint8Array>
 ): Promise<Uint8Array> {
-	const converter = new DocumentConverter(docId, zipData);
+	const converter = new DocumentConverter(docId, files);
 	return converter.convertToPdf();
 }

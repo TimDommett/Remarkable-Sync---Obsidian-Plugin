@@ -231,6 +231,36 @@ function computeTextBlockHeightPt(
 	return totalHeight;
 }
 
+/**
+ * Lowest point reached by this page's typed text, expressed in the SAME raw-Y
+ * coordinate basis as stroke points so it can be compared directly against the
+ * stroke maxY when deciding how tall the rendered page must be.
+ *
+ * A text block starts at `tb.posY` and grows downward by `computeTextBlockHeightPt`
+ * PDF points; converting that height back into raw-Y units is `/ COORD_SCALE`,
+ * mirroring `toPdf()` (py = pageHeightPt - rawY * COORD_SCALE). Returns 0 when
+ * there is no text, so it can never shrink a page.
+ */
+export async function computeTextBlocksBottomRawY(page: Page): Promise<number> {
+	if (!page.textBlocks || page.textBlocks.length === 0) return 0;
+	try {
+		const doc = await PDFDocument.create();
+		const font = await doc.embedFont(StandardFonts.Helvetica);
+		const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+		let maxBottom = 0;
+		for (const tb of page.textBlocks) {
+			if (!tb.text.trim()) continue;
+			const heightPt = computeTextBlockHeightPt(tb, font, boldFont);
+			const bottomRawY = tb.posY + heightPt / COORD_SCALE;
+			if (bottomRawY > maxBottom) maxBottom = bottomRawY;
+		}
+		return maxBottom;
+	} catch {
+		// Height prediction is best-effort; never block conversion on it.
+		return 0;
+	}
+}
+
 // --- Page geometry ---
 
 interface PageGeometry {

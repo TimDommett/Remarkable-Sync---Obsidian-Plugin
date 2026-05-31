@@ -876,7 +876,6 @@ export function parseRmFile(data: ArrayBuffer, debug = false): Page {
 			const contentEnd = contentStart + blockLen;
 
 			if (contentEnd > data.byteLength) {
-				if (debug) console.log(`  Block #${blockCount}: type=${blockType} extends beyond file, stopping`);
 				break;
 			}
 
@@ -963,13 +962,6 @@ export function parseRmFile(data: ArrayBuffer, debug = false): Page {
 			}
 		}
 		strokes.push(stroke);
-	}
-
-	if (debug) {
-		console.log(`  Total blocks: ${blockCount}, strokes: ${strokes.length}, tree entries: ${sceneTreeEntries.length}, tree nodes: ${treeNodeMap.size}`);
-		if (textBlock) {
-			console.log(`  Text block: ${textBlock.text.length} chars at (${textBlock.posX}, ${textBlock.posY})`);
-		}
 	}
 
 	const layers: Layer[] = strokes.length > 0
