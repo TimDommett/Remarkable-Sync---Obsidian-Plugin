@@ -98,25 +98,28 @@ export class DocumentConverter {
 					));
 					page.pageId = pageInfo.pageId;
 
-					// Extend page height for vertically scrolled pages.
-					// The 0.885 scale factor accounts for the difference between
-					// raw stroke coordinate bounds and reMarkable's export bounds.
-					// Only extend if content significantly exceeds the default height.
-					if (pageInfo.verticalScroll != null) {
-						const defaultHeight = page.height; // 1872
-						const threshold = defaultHeight * 1.05;
-						let maxY = 0;
-						for (const layer of page.layers) {
-							for (const stroke of layer.strokes) {
-								for (const pt of stroke.points) {
-									if (pt.y > maxY) maxY = pt.y;
-								}
+					// Extend the page height whenever content runs past the default
+					// page bounds (e.g. vertically scrolled / long pages) so it is
+					// not cut off. This is content-driven and mirrors the reference
+					// renderer in re-render.ts: pages whose strokes stay within the
+					// default height are left untouched, so it cannot affect normal
+					// single-screen pages. (Previously this only ran when the
+					// optional `verticalScroll` metadata was present, which silently
+					// truncated long pages that lacked it.) The 0.885 factor maps raw
+					// stroke-coordinate bounds to reMarkable's export bounds.
+					const defaultHeight = page.height; // 1872
+					const threshold = defaultHeight * 1.05;
+					let maxY = 0;
+					for (const layer of page.layers) {
+						for (const stroke of layer.strokes) {
+							for (const pt of stroke.points) {
+								if (pt.y > maxY) maxY = pt.y;
 							}
 						}
-						const scaledHeight = maxY * 0.885;
-						if (scaledHeight > threshold) {
-							page.height = scaledHeight;
-						}
+					}
+					const scaledHeight = maxY * 0.885;
+					if (scaledHeight > threshold) {
+						page.height = scaledHeight;
 					}
 
 					parsedPages.push(page);
