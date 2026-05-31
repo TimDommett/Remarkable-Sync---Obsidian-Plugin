@@ -143,3 +143,47 @@ test("an unauthenticated client still produces a log before throwing", async () 
 	assert.ok(log, "log should be written even when not authenticated");
 	assert.match(log!, /Not authenticated/);
 });
+
+// --- Vault-relative paths (fs -> Vault adapter migration) ---
+//
+// In Obsidian the plugin now passes an empty base path and writes through the
+// vault adapter, so all paths must be vault-relative with NO leading slash.
+
+test("an empty base path produces vault-relative paths (no leading slash)", async () => {
+	const { ops, files } = memoryFileOps();
+	const manager = new SyncManager("", "reMarkable", ops, new SyncState());
+
+	const results = await manager.sync(failingClient([doc("doc-1", "Notes")]), {
+		logFileName: "_test-sync-log.md",
+	});
+
+	// Log + state are written vault-relative, not under a "/vault" prefix.
+	assert.equal(results.logPath, "reMarkable/_test-sync-log.md");
+	assert.ok(files.has("reMarkable/_test-sync-log.md"), "log written vault-relative");
+	assert.ok(
+		files.has("reMarkable/.remarkable-sync-state.json"),
+		"state dotfile written vault-relative"
+	);
+	// Nothing may be written with a leading slash (would break adapter paths).
+	for (const key of files.keys()) {
+		assert.ok(!key.startsWith("/"), `path must not start with '/': ${key}`);
+	}
+});
+
+test("an empty subfolder writes at the vault root without a leading slash", async () => {
+	const { ops, files } = memoryFileOps();
+	const manager = new SyncManager("", "", ops, new SyncState());
+
+	await manager.sync(failingClient([doc("doc-1", "Notes")]), {
+		logFileName: "_test-sync-log.md",
+	});
+
+	assert.ok(files.has("_test-sync-log.md"), "log written at vault root");
+	assert.ok(
+		files.has(".remarkable-sync-state.json"),
+		"state dotfile written at vault root"
+	);
+	for (const key of files.keys()) {
+		assert.ok(!key.startsWith("/"), `path must not start with '/': ${key}`);
+	}
+});

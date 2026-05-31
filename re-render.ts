@@ -39,7 +39,7 @@ async function main() {
 				const page = parseRmFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
 
 				// Auto-detect and extend long pages (shared with DocumentConverter)
-				extendPageHeightForContent(page);
+				await extendPageHeightForContent(page);
 
 				pages.push(page);
 			}

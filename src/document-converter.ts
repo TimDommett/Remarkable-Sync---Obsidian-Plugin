@@ -9,7 +9,11 @@
 
 import { PDFDocument } from "pdf-lib";
 import { parseRmFile, type Page } from "./rm-parser";
-import { renderPageToPdf, renderNotebookToPdf } from "./pdf-renderer";
+import {
+	renderPageToPdf,
+	renderNotebookToPdf,
+	computeTextBlocksBottomRawY,
+} from "./pdf-renderer";
 
 // --- Data structures ---
 
@@ -98,10 +102,11 @@ export class DocumentConverter {
 					));
 					page.pageId = pageInfo.pageId;
 
-					// Extend the page height when stroke content runs past the
-					// default page bounds (long / vertically scrolled pages) so it
-					// is not clipped. See extendPageHeightForContent.
-					extendPageHeightForContent(page);
+					// Extend the page height when stroke OR typed-text content
+					// runs past the default page bounds (long / vertically
+					// scrolled pages) so it is not clipped. See
+					// extendPageHeightForContent.
+					await extendPageHeightForContent(page);
 
 					parsedPages.push(page);
 				} catch {
@@ -285,16 +290,26 @@ export class DocumentConverter {
 	}
 }
 
-// Extend the page height when stroke content runs past the default page bounds
-// (long / vertically scrolled pages) so it is not clipped in the rendered PDF.
-// This is content-driven and independent of the optional `verticalScroll`
-// metadata — long pages that lack it would otherwise be silently truncated.
-// Pages whose strokes stay within the default height are left untouched, so it
-// can never affect normal single-screen pages. The 0.885 factor maps raw
-// stroke-coordinate bounds to reMarkable's export bounds (calibrated against
+// Extend the page height when stroke OR typed-text content runs past the default
+// page bounds (long / vertically scrolled pages) so it is not clipped in the
+// rendered PDF. This is content-driven and independent of the optional
+// `verticalScroll` metadata — long pages that lack it would otherwise be
+// silently truncated.
+//
+// Both strokes and typed text are reduced to a single `maxY` in raw-Y units:
+// strokes contribute their lowest point directly, while a text block's rendered
+// bottom is `posY + renderedHeightPt / COORD_SCALE` (see
+// computeTextBlocksBottomRawY). This matters most for mixed pages where the
+// typed text sits BELOW where the strokes end — previously only strokes were
+// measured, so that text was cut off.
+//
+// Pages whose content stays within the default height are left untouched, so it
+// can never affect normal single-screen pages (maxY only ever grows, and the
+// height is reassigned only when it exceeds the threshold). The 0.885 factor
+// maps raw coordinate bounds to reMarkable's export bounds (calibrated against
 // reference_sheets/). Shared with the re-render.ts reference tool so both paths
 // stay in sync.
-export function extendPageHeightForContent(page: Page): void {
+export async function extendPageHeightForContent(page: Page): Promise<void> {
 	const defaultHeight = page.height; // 1872 for standard pages
 	const threshold = defaultHeight * 1.05;
 	let maxY = 0;
@@ -305,6 +320,10 @@ export function extendPageHeightForContent(page: Page): void {
 			}
 		}
 	}
+	// Typed text is positioned independently of strokes and can extend below
+	// them (or below the default height); fold its rendered bottom into maxY.
+	const textBottomRawY = await computeTextBlocksBottomRawY(page);
+	if (textBottomRawY > maxY) maxY = textBottomRawY;
 	const scaledHeight = maxY * 0.885;
 	if (scaledHeight > threshold) {
 		page.height = scaledHeight;

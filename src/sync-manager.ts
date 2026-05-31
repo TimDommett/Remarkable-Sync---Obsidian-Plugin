@@ -115,8 +115,8 @@ export class SyncManager {
 		state: SyncState
 	) {
 		this.vaultPath = vaultPath;
-		this.outputDir = vaultPath + "/" + subfolder;
-		this.stateFile = this.outputDir + "/.remarkable-sync-state.json";
+		this.outputDir = joinPath(vaultPath, subfolder);
+		this.stateFile = joinPath(this.outputDir, ".remarkable-sync-state.json");
 		this.fileOps = fileOps;
 		this.state = state;
 	}
@@ -126,8 +126,8 @@ export class SyncManager {
 		subfolder: string,
 		fileOps: FileOps
 	): Promise<SyncManager> {
-		const outputDir = vaultPath + "/" + subfolder;
-		const stateFile = outputDir + "/.remarkable-sync-state.json";
+		const outputDir = joinPath(vaultPath, subfolder);
+		const stateFile = joinPath(outputDir, ".remarkable-sync-state.json");
 		const state = await SyncState.load(stateFile, fileOps);
 		return new SyncManager(vaultPath, subfolder, fileOps, state);
 	}
@@ -257,7 +257,7 @@ export class SyncManager {
 		results: SyncResults,
 		fileName: string
 	): Promise<string> {
-		const logFilePath = this.outputDir + "/" + fileName;
+		const logFilePath = joinPath(this.outputDir, fileName);
 
 		let previous = "";
 		try {
@@ -277,7 +277,7 @@ export class SyncManager {
 
 		const content = LOG_HEADER + body + "\n";
 
-		await this.fileOps.mkdir(this.outputDir);
+		if (this.outputDir) await this.fileOps.mkdir(this.outputDir);
 		await this.fileOps.writeFile(logFilePath, content);
 
 		return logFilePath.startsWith(this.vaultPath + "/")
@@ -299,11 +299,11 @@ export class SyncManager {
 
 		// Sanitize path for Windows
 		const safePath = docPath.replace(/[<>:"|?*]/g, "_");
-		const outputPath = this.outputDir + "/" + safePath + ".pdf";
+		const outputPath = joinPath(this.outputDir, safePath + ".pdf");
 
 		// Ensure parent directory exists
 		const parentDir = outputPath.substring(0, outputPath.lastIndexOf("/"));
-		await this.fileOps.mkdir(parentDir);
+		if (parentDir) await this.fileOps.mkdir(parentDir);
 
 		// Write PDF
 		await this.fileOps.writeBinaryFile(outputPath, pdfData);
@@ -422,6 +422,16 @@ function formatRunSection(results: SyncResults): string {
 }
 
 // --- Utilities ---
+
+// Join a base directory and a child path. The base may be empty — used when
+// the file ops are vault-relative (Obsidian) — in which case the child is
+// returned as-is, avoiding a spurious leading "/". A non-empty base (e.g. the
+// CLI's absolute output dir) is joined with a single separator.
+function joinPath(base: string, child: string): string {
+	if (!base) return child;
+	if (!child) return base;
+	return base.replace(/\/+$/, "") + "/" + child;
+}
 
 function simpleHash(data: Uint8Array): string {
 	// Simple FNV-1a hash as a hex string (not cryptographic, just for change detection)
