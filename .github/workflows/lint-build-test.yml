@@ -1,4 +1,4 @@
-name: CI
+name: Lint, build & test
 
 # Runs on commits pushed to branches in THIS repository, plus manual dispatch.
 #
