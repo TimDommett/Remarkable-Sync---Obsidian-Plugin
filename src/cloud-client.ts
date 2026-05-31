@@ -5,8 +5,6 @@
  * Uses the sync15 (v3) protocol. Pure TypeScript with fetch() — no Obsidian deps.
  */
 
-import JSZip from "jszip";
-
 // --- Constants ---
 
 export const AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
@@ -328,7 +326,13 @@ export class RemarkableCloudClient {
 		return documents;
 	}
 
-	async downloadDocument(docId: string): Promise<Uint8Array> {
+	/**
+	 * Download every blob that makes up a document and return them keyed by
+	 * their logical filename. Returning a plain map (instead of a packed ZIP)
+	 * keeps the runtime dependency-free — the converter reads the files
+	 * directly without unzipping.
+	 */
+	async downloadDocument(docId: string): Promise<Map<string, Uint8Array>> {
 		await this.ensureAuthenticated();
 
 		if (!this.docFileIndex.has(docId)) {
@@ -346,14 +350,13 @@ export class RemarkableCloudClient {
 		}
 
 		const subFiles = this.docFileIndex.get(docId)!;
-		const zip = new JSZip();
+		const files = new Map<string, Uint8Array>();
 
 		for (const [filename, fileHash] of subFiles) {
-			const fileData = await this.fetchFile(fileHash, filename);
-			zip.file(filename, fileData);
+			files.set(filename, await this.fetchFile(fileHash, filename));
 		}
 
-		return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+		return files;
 	}
 }
 
