@@ -11,6 +11,7 @@ export default class RemarkableSyncPlugin extends Plugin {
 	private client!: RemarkableCloudClient;
 	private syncIntervalId: number | null = null;
 	private statusBarItem: HTMLElement | null = null;
+	private ribbonIconEl: HTMLElement | null = null;
 	private isSyncing = false;
 
 	async onload(): Promise<void> {
@@ -24,8 +25,8 @@ export default class RemarkableSyncPlugin extends Plugin {
 		// Update auth status from token store
 		this.settings.isAuthenticated = this.client.isAuthenticated;
 
-		// Ribbon icon for manual sync
-		this.addRibbonIcon("refresh-cw", "Sync reMarkable", async () => {
+		// Ribbon icon for manual sync (spins while a sync is in progress)
+		this.ribbonIconEl = this.addRibbonIcon("refresh-cw", "Sync reMarkable", async () => {
 			await this.runSync();
 		});
 
@@ -183,6 +184,7 @@ export default class RemarkableSyncPlugin extends Plugin {
 		}
 
 		this.isSyncing = true;
+		this.setRibbonSpinning(true);
 		this.updateStatusBar("syncing...");
 		new Notice("reMarkable: Starting sync...");
 
@@ -241,6 +243,7 @@ export default class RemarkableSyncPlugin extends Plugin {
 			new Notice(`reMarkable sync failed: ${message}`, 10000);
 		} finally {
 			this.isSyncing = false;
+			this.setRibbonSpinning(false);
 			this.updateStatusBar();
 		}
 	}
@@ -255,6 +258,10 @@ export default class RemarkableSyncPlugin extends Plugin {
 		new Notice(
 			"No sync log found yet. Run a sync first (with 'Write sync log' enabled)."
 		);
+	}
+
+	private setRibbonSpinning(active: boolean): void {
+		this.ribbonIconEl?.toggleClass("remarkable-sync-spinning", active);
 	}
 
 	private updateStatusBar(override?: string): void {

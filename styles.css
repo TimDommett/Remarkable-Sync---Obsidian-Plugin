@@ -30,3 +30,18 @@
 .remarkable-sync-donate-img {
 	height: 60px;
 }
+
+/* Spin the ribbon sync icon while a sync is in progress. */
+.remarkable-sync-spinning svg {
+	animation: remarkable-sync-spin 1s linear infinite;
+	transform-origin: center;
+}
+
+@keyframes remarkable-sync-spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
