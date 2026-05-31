@@ -192,6 +192,11 @@ Please open an issue with:
 - A description of the problem
 - Steps to reproduce
 - Your Obsidian version and OS
+- **The sync log** — for any sync-related problem, attach the relevant section
+  of `<sync folder>/_reMarkable Sync Log.md` (open it via the **Open log** button
+  in settings or the **reMarkable Sync: Open sync log** command). The log contains
+  the specific per-document error messages needed to diagnose failures. If the log
+  is missing, enable **Write sync log** in settings and reproduce the issue.
 - Any relevant error messages from the developer console (Ctrl+Shift+I)
 
 ## Acknowledgments

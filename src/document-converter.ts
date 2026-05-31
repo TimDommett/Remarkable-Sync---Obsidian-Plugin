@@ -78,7 +78,10 @@ export class DocumentConverter {
 		const content = await this.parse();
 
 		if (content.pages.length === 0) {
-			throw new Error("No pages found in document");
+			throw new Error(
+				`No pages found in document (type: ${content.docType}). ` +
+					`Documents with no rendered pages cannot be converted to PDF.`
+			);
 		}
 
 		const parsedPages: Page[] = [];

@@ -1,0 +1,93 @@
+name: Bug report
+description: Report a problem with the reMarkable Sync plugin
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+
+        **For any sync-related issue, the sync log is required** — it contains the
+        specific per-document error messages needed to diagnose failures.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Description of the problem
+      description: What happened, and what did you expect to happen?
+      placeholder: e.g. "Sync reports 'Errors: 59' and no documents appear."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the issue?
+      placeholder: |
+        1. Authenticate with reMarkable
+        2. Set folder filter to "..."
+        3. Click sync
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: sync-log
+    attributes:
+      label: Sync log
+      description: >
+        Paste the relevant section of `<sync folder>/_reMarkable Sync Log.md`.
+        Open it via the **Open log** button in settings, or the
+        **reMarkable Sync: Open sync log** command. If the log is missing, enable
+        **Write sync log** in settings, reproduce the issue, then paste it here.
+        Remove any document names you consider private.
+      render: text
+      placeholder: |
+        ## Sync 2026-05-30T16:24:38Z
+        - Result: 0 synced, 7 skipped, 59 errors
+        ### Errors (59)
+        - `Work/Meeting notes`: <error message>
+        ...
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Obsidian version and OS
+      description: Found under Settings → About, plus your operating system.
+      placeholder: "Obsidian 1.x.x on macOS 15 / Windows 11 / Linux"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: reMarkable device
+      description: Which device and software version are you syncing from?
+      placeholder: "reMarkable Paper Pro, software 3.x"
+    validations:
+      required: false
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Developer console output (optional)
+      description: >
+        Any relevant errors from the developer console (Ctrl/Cmd+Shift+I →
+        Console). Helpful for issues that are not captured in the sync log.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I attached the sync log (or explained why it is unavailable).
+          required: true

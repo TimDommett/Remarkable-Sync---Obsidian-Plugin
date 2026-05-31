@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feature request / idea
+    url: https://feature-voting.keystone-studios.com/remarkable-sync
+    about: Vote on upcoming features or suggest your own on the feature board.
+  - name: Question or help
+    url: https://github.com/TimDommett/Remarkable-Sync---Obsidian-Plugin/discussions
+    about: Ask questions and get help from the community.
