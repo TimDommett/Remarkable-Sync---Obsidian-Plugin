@@ -98,29 +98,10 @@ export class DocumentConverter {
 					));
 					page.pageId = pageInfo.pageId;
 
-					// Extend the page height whenever content runs past the default
-					// page bounds (e.g. vertically scrolled / long pages) so it is
-					// not cut off. This is content-driven and mirrors the reference
-					// renderer in re-render.ts: pages whose strokes stay within the
-					// default height are left untouched, so it cannot affect normal
-					// single-screen pages. (Previously this only ran when the
-					// optional `verticalScroll` metadata was present, which silently
-					// truncated long pages that lacked it.) The 0.885 factor maps raw
-					// stroke-coordinate bounds to reMarkable's export bounds.
-					const defaultHeight = page.height; // 1872
-					const threshold = defaultHeight * 1.05;
-					let maxY = 0;
-					for (const layer of page.layers) {
-						for (const stroke of layer.strokes) {
-							for (const pt of stroke.points) {
-								if (pt.y > maxY) maxY = pt.y;
-							}
-						}
-					}
-					const scaledHeight = maxY * 0.885;
-					if (scaledHeight > threshold) {
-						page.height = scaledHeight;
-					}
+					// Extend the page height when stroke content runs past the
+					// default page bounds (long / vertically scrolled pages) so it
+					// is not clipped. See extendPageHeightForContent.
+					extendPageHeightForContent(page);
 
 					parsedPages.push(page);
 				} catch {
@@ -301,6 +282,32 @@ export class DocumentConverter {
 		} catch {
 			return null;
 		}
+	}
+}
+
+// Extend the page height when stroke content runs past the default page bounds
+// (long / vertically scrolled pages) so it is not clipped in the rendered PDF.
+// This is content-driven and independent of the optional `verticalScroll`
+// metadata — long pages that lack it would otherwise be silently truncated.
+// Pages whose strokes stay within the default height are left untouched, so it
+// can never affect normal single-screen pages. The 0.885 factor maps raw
+// stroke-coordinate bounds to reMarkable's export bounds (calibrated against
+// reference_sheets/). Shared with the re-render.ts reference tool so both paths
+// stay in sync.
+export function extendPageHeightForContent(page: Page): void {
+	const defaultHeight = page.height; // 1872 for standard pages
+	const threshold = defaultHeight * 1.05;
+	let maxY = 0;
+	for (const layer of page.layers) {
+		for (const stroke of layer.strokes) {
+			for (const pt of stroke.points) {
+				if (pt.y > maxY) maxY = pt.y;
+			}
+		}
+	}
+	const scaledHeight = maxY * 0.885;
+	if (scaledHeight > threshold) {
+		page.height = scaledHeight;
 	}
 }
 
