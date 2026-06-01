@@ -9,6 +9,7 @@ export interface RemarkableSyncSettings {
 	lastSyncTime: string;
 	isAuthenticated: boolean;
 	writeSyncLog: boolean;
+	spinRibbonIconWhileSyncing: boolean;
 }
 
 export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
 	lastSyncTime: "",
 	isAuthenticated: false,
 	writeSyncLog: true,
+	spinRibbonIconWhileSyncing: true,
 };
 
 export class RemarkableSyncSettingTab extends PluginSettingTab {
@@ -130,6 +132,19 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.folderFilter = value;
 						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Spin ribbon icon while syncing")
+			.setDesc("Animate the sidebar sync icon with a rotation during sync.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.spinRibbonIconWhileSyncing)
+					.onChange(async (value) => {
+						this.plugin.settings.spinRibbonIconWhileSyncing = value;
+						await this.plugin.saveSettings();
+						this.plugin.updateRibbonIconSpin();
 					})
 			);
 
