@@ -516,11 +516,17 @@ async function mergeWithBackground(
 		const bgDoc = await PDFDocument.load(backgroundPdf);
 		const annotDoc = await PDFDocument.load(annotationPdf);
 
-		if (bgDoc.getPageCount() === 0) return annotationPdf;
+		if (bgDoc.getPageCount() === 0) return backgroundPdf;
 
 		const bgPage = bgDoc.getPages()[0];
 
-		if (annotDoc.getPageCount() > 0) {
+		// Only embed the annotation overlay when it actually has drawn content.
+		// Un-annotated reMarkable pages (e.g. unread imported PDF pages, default
+		// "Go further" docs) render to a blank page with no /Contents stream;
+		// pdf-lib throws "Can't embed page with missing Contents" when embedding
+		// such a page (the check runs lazily during save). For those pages there
+		// is nothing to overlay, so we keep the background untouched.
+		if (annotDoc.getPageCount() > 0 && annotationPageHasContents(annotDoc)) {
 			const [embeddedPage] = await bgDoc.embedPdf(annotDoc, [0]);
 			const { width, height } = bgPage.getSize();
 			bgPage.drawPage(embeddedPage, {
@@ -531,8 +537,25 @@ async function mergeWithBackground(
 			});
 		}
 
-		return bgDoc.save();
+		// NOTE: must be `return await` — a bare `return bgDoc.save()` lets a
+		// rejection escape this try/catch (the promise is returned before it
+		// settles), which is what previously failed entire documents.
+		return await bgDoc.save();
 	} catch {
-		return annotationPdf;
+		// Fall back to the original background so the PDF's own page content is
+		// preserved; the blank annotation overlay would otherwise be lost.
+		return backgroundPdf;
+	}
+}
+
+// True when the first page of the annotation document carries a /Contents
+// stream, i.e. something was actually drawn on it. Blank overlays have none and
+// cannot be embedded by pdf-lib.
+function annotationPageHasContents(annotDoc: PDFDocument): boolean {
+	try {
+		const node = annotDoc.getPage(0).node;
+		return node.normalizedEntries().Contents != null;
+	} catch {
+		return false;
 	}
 }

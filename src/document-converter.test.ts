@@ -1,21 +1,19 @@
 /**
- * Tests for content-driven page-height extension.
+ * Tests for the document converter.
  *
- * Regression tests for the bug where long / vertically-scrolled pages were
- * clipped. Two distinct causes:
- *   1. Extension used to be gated behind the optional `verticalScroll`
- *      metadata, so a long page that lacked it kept the default height.
- *   2. Extension only measured STROKE bounds and ignored typed text, so a page
- *      whose typed text extended below the strokes (common on mixed
- *      drawing + text pages) had that text cut off at the bottom.
- * Extension must be content-driven over BOTH strokes and typed text, matching
- * the reference renderer.
+ * Covers two regression areas:
+ *   - Content-driven page-height extension (long / vertically-scrolled pages
+ *     were clipped because extension was gated behind optional metadata and
+ *     ignored typed text).
+ *   - Conversion of un-annotated imported PDFs (issue #16), which used to fail
+ *     the whole document with "Can't embed page with missing Contents".
  *
  * Run: npx tsx --test src/document-converter.test.ts
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extendPageHeightForContent } from "./document-converter";
+import { PDFDocument } from "pdf-lib";
+import { convertDocument, extendPageHeightForContent } from "./document-converter";
 import { computeTextBlocksBottomRawY } from "./pdf-renderer";
 import type { Page, Stroke, TextBlock } from "./rm-parser";
 
@@ -147,4 +145,78 @@ test("empty / whitespace-only text blocks are ignored", async () => {
 
 	await extendPageHeightForContent(page);
 	assert.equal(page.height, DEFAULT_HEIGHT);
+});
+
+// --- Un-annotated imported PDFs (issue #16) ---
+//
+// A PDF imported to the reMarkable but never drawn on has pages with no .rm
+// stroke data, so each page renders to a blank overlay with no /Contents
+// stream. Merging that overlay onto the original PDF page used to throw pdf-lib's
+// "Can't embed page with missing Contents" (the check runs lazily during save),
+// and a missing `await` in mergeWithBackground let that rejection escape its
+// try/catch and fail the whole document — every un-annotated PDF errored out.
+// convertDocument must now produce the original PDF unchanged for these.
+
+// A minimal reMarkable archive for an imported PDF with `pageCount` pages and no
+// annotations, mirroring what the sync downloads: a .content listing the pages,
+// a .metadata, and the original .pdf — but no per-page .rm files.
+async function unannotatedPdfArchive(
+	docId: string,
+	pageSizes: [number, number][]
+): Promise<Map<string, Uint8Array>> {
+	const original = await PDFDocument.create();
+	for (const [w, h] of pageSizes) {
+		// Draw real content so the *background* has a /Contents stream; the bug is
+		// about the blank annotation overlay, not the page being merged onto.
+		original.addPage([w, h]).drawText("original page content", { x: 40, y: h - 60 });
+	}
+	const pdfBytes = new Uint8Array(await original.save());
+
+	const pageIds = pageSizes.map((_, i) => `page-${i}`);
+	const enc = (s: string) => new TextEncoder().encode(s);
+
+	const files = new Map<string, Uint8Array>();
+	files.set(`${docId}.pdf`, pdfBytes);
+	files.set(`${docId}.metadata`, enc(JSON.stringify({ visibleName: "Imported PDF", type: "DocumentType" })));
+	files.set(`${docId}.content`, enc(JSON.stringify({ fileType: "pdf", pages: pageIds })));
+	// Deliberately NO `${docId}/<pageId>.rm` files — the pages are un-annotated.
+	return files;
+}
+
+test("un-annotated single-page PDF converts and preserves the original page", async () => {
+	const files = await unannotatedPdfArchive("doc1", [[612, 792]]);
+
+	// Before the fix this rejected with "Can't embed page with missing Contents".
+	const out = await convertDocument("doc1", files);
+
+	const doc = await PDFDocument.load(out);
+	assert.equal(doc.getPageCount(), 1);
+	// The output keeps the original PDF page size, proving the background was kept
+	// rather than replaced by the 1404x1872 blank-annotation default.
+	const { width, height } = doc.getPage(0).getSize();
+	assert.equal(Math.round(width), 612);
+	assert.equal(Math.round(height), 792);
+});
+
+test("un-annotated multi-page PDF converts every page", async () => {
+	const files = await unannotatedPdfArchive("doc2", [
+		[612, 792],
+		[595, 842],
+		[612, 792],
+	]);
+
+	const out = await convertDocument("doc2", files);
+
+	const doc = await PDFDocument.load(out);
+	assert.equal(doc.getPageCount(), 3);
+	// Each background page is preserved at its own size (incl. the A4 middle page).
+	const sizes = doc.getPages().map((p) => {
+		const s = p.getSize();
+		return [Math.round(s.width), Math.round(s.height)];
+	});
+	assert.deepEqual(sizes, [
+		[612, 792],
+		[595, 842],
+		[612, 792],
+	]);
 });
