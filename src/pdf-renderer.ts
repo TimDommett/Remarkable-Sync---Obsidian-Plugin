@@ -18,6 +18,7 @@ import {
 
 import type { Page, Stroke, Point, TextBlock } from "./rm-parser";
 import { PenType } from "./rm-parser";
+import { resolveTemplate, drawTemplate } from "./template-renderer";
 
 // --- Constants ---
 
@@ -451,6 +452,20 @@ export async function renderPageToPdf(
 
 	const geo = computePageGeometry(page, font, boldFont);
 	const pdfPage = doc.addPage([geo.pageWidthPt, geo.pageHeightPt]);
+
+	// Draw the page template (background) first, so strokes and text sit on top.
+	// Imported PDF pages get their background from the original PDF via
+	// mergeWithBackground, so only draw a template when there is no background.
+	if (!backgroundPdf) {
+		const spec = resolveTemplate(page.template);
+		if (spec) {
+			drawTemplate(pdfPage, spec, {
+				pageWidthPt: geo.pageWidthPt,
+				pageHeightPt: geo.pageHeightPt,
+				coordScale: COORD_SCALE,
+			});
+		}
+	}
 
 	const extGStates = new Map<number, string>();
 

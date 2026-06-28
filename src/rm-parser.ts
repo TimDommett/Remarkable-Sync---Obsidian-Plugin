@@ -144,6 +144,8 @@ export interface Page {
 	textBlocks: TextBlock[];
 	width: number;
 	height: number;
+	/** reMarkable template (page background) name, e.g. "P Lines medium". */
+	template?: string | null;
 }
 
 // --- Binary reader ---

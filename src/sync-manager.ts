@@ -295,7 +295,9 @@ export class SyncManager {
 		const zipData = await client.downloadDocument(doc.id);
 
 		progress(`Converting: ${docPath}...`);
-		const pdfData = await convertDocument(doc.id, zipData);
+		const pdfData = await convertDocument(doc.id, zipData, (msg) =>
+			progress(`[WARN] ${docPath}: ${msg}`)
+		);
 
 		// Sanitize path for Windows
 		const safePath = docPath.replace(/[<>:"|?*]/g, "_");

@@ -14,6 +14,7 @@ import {
 	renderNotebookToPdf,
 	computeTextBlocksBottomRawY,
 } from "./pdf-renderer";
+import { resolveTemplate } from "./template-renderer";
 
 // --- Data structures ---
 
@@ -41,10 +42,16 @@ export class DocumentConverter {
 	private files: Map<string, Uint8Array>;
 	private content: DocumentContent | null = null;
 	private contentInfo: Record<string, any> = {};
+	private onWarn?: (message: string) => void;
 
-	constructor(docId: string, files: Map<string, Uint8Array>) {
+	constructor(
+		docId: string,
+		files: Map<string, Uint8Array>,
+		onWarn?: (message: string) => void
+	) {
 		this.docId = docId;
 		this.files = files;
+		this.onWarn = onWarn;
 	}
 
 	private textOf(name: string): string {
@@ -90,6 +97,7 @@ export class DocumentConverter {
 
 		const parsedPages: Page[] = [];
 		const backgroundPdfs: (Uint8Array | null)[] = [];
+		const unsupportedTemplates = new Set<string>();
 
 		for (let i = 0; i < content.pages.length; i++) {
 			const pageInfo = content.pages[i];
@@ -116,6 +124,14 @@ export class DocumentConverter {
 				parsedPages.push(emptyPage(pageInfo.pageId));
 			}
 
+			// Carry the page's template (background) onto the parsed page so the
+			// renderer can draw it. Templates only apply to notebook pages; an
+			// imported PDF page uses the original PDF as its background instead.
+			parsedPages[parsedPages.length - 1].template = pageInfo.template;
+			if (!content.originalPdf && pageInfo.template && resolveTemplate(pageInfo.template) === null) {
+				unsupportedTemplates.add(pageInfo.template);
+			}
+
 			if (content.originalPdf) {
 				try {
 					const bgPage = await this.extractPdfPage(content.originalPdf, i);
@@ -126,6 +142,12 @@ export class DocumentConverter {
 			} else {
 				backgroundPdfs.push(null);
 			}
+		}
+
+		for (const name of unsupportedTemplates) {
+			this.onWarn?.(
+				`Template "${name}" is not supported yet; page background left blank.`
+			);
 		}
 
 		if (parsedPages.length === 1) {
@@ -185,11 +207,17 @@ export class DocumentConverter {
 		// Check cPages (newer format) and extract per-page metadata
 		const cPages = contentInfo.cPages;
 		const pageVerticalScroll = new Map<string, number>();
+		const pageTemplate = new Map<string, string>();
 		if (cPages && cPages.pages) {
 			pageIds = cPages.pages.map((p: any) => {
 				const id = typeof p === "object" ? p.id ?? p : p;
 				if (typeof p === "object" && p.verticalScroll?.value != null) {
 					pageVerticalScroll.set(id, p.verticalScroll.value);
+				}
+				// The page's template (background) name lives here in the v6
+				// format, e.g. { template: { value: "P Lines medium" } }.
+				if (typeof p === "object" && typeof p.template?.value === "string") {
+					pageTemplate.set(id, p.template.value);
 				}
 				return id;
 			});
@@ -213,7 +241,7 @@ export class DocumentConverter {
 			const pageInfo: PageInfo = {
 				pageId,
 				rmData: null,
-				template: null,
+				template: pageTemplate.get(pageId) ?? null,
 				verticalScroll: pageVerticalScroll.get(pageId) ?? null,
 			};
 
@@ -230,7 +258,11 @@ export class DocumentConverter {
 				if (name.includes(`${pageId}-metadata.json`)) {
 					try {
 						const meta = JSON.parse(this.textOf(name));
-						pageInfo.template = meta.template ?? null;
+						// Older per-page metadata location; only use it as a
+						// fallback so it never clobbers a cPages template.
+						if (meta.template != null && pageInfo.template == null) {
+							pageInfo.template = meta.template;
+						}
 					} catch {
 						// ignore
 					}
@@ -343,8 +375,9 @@ function emptyPage(pageId: string): Page {
 
 export async function convertDocument(
 	docId: string,
-	files: Map<string, Uint8Array>
+	files: Map<string, Uint8Array>,
+	onWarn?: (message: string) => void
 ): Promise<Uint8Array> {
-	const converter = new DocumentConverter(docId, files);
+	const converter = new DocumentConverter(docId, files, onWarn);
 	return converter.convertToPdf();
 }
