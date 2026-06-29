@@ -107,7 +107,7 @@ const DEFAULT_FONT: FontSetting = { fontKey: StandardFonts.Helvetica, fontSize: 
 
 // --- Helpers ---
 
-function getPenStyle(penType: number): PenStyle {
+function getPenStyle(penType: PenType): PenStyle {
 	return PEN_STYLES[penType] ?? { opacity: 1.0, isHighlighter: false };
 }
 
@@ -129,7 +129,7 @@ function getArgbColor(argb: number): { r: number; g: number; b: number; a: numbe
 // In our 1:1 PDF point space: widthPt = rawWidth * SCALE * WIDTH_FACTOR.
 const WIDTH_FACTOR = 0.216;
 
-function pointWidthPt(point: Point, penType: number): number {
+function pointWidthPt(point: Point, penType: PenType): number {
 	const base = point.width * SCALE * WIDTH_FACTOR;
 	switch (penType) {
 		case PenType.BALLPOINT_1:
@@ -167,7 +167,10 @@ function sanitizeForWinAnsi(text: string): string {
 	return text
 		.replace(/\u2028/g, "\n")  // LINE SEPARATOR → newline
 		.replace(/\u2029/g, "\n")  // PARAGRAPH SEPARATOR → newline
-		.replace(/[^\x00-\xFF\u2022]/g, ""); // Strip non-WinAnsi chars (keep bullet)
+		// Strip characters outside the WinAnsi range (code points > U+00FF),
+		// keeping the bullet (U+2022). Equivalent to /[^\x00-\xFF•]/ but
+		// without a control character in the pattern (no-control-regex).
+		.replace(/[Ā-￿]/g, (ch) => (ch === "•" ? ch : ""));
 }
 
 function wrapText(text: string, maxWidth: number, font: PDFFont, fontSize: number): string[] {

@@ -34,7 +34,10 @@ export class SyncState {
 		try {
 			const data = await fileOps.readFile(stateFile);
 			if (!data) return state;
-			const parsed = JSON.parse(data);
+			const parsed = JSON.parse(data) as {
+				last_sync?: string | null;
+				synced_docs?: Record<string, SyncedDocInfo>;
+			};
 			state.lastSync = parsed.last_sync ?? null;
 			state.syncedDocs = parsed.synced_docs ?? {};
 		} catch {

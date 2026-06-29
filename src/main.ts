@@ -73,7 +73,8 @@ export default class RemarkableSyncPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const saved = (await this.loadData()) as Partial<RemarkableSyncSettings> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -94,13 +95,14 @@ export default class RemarkableSyncPlugin extends Plugin {
 				body: options?.body,
 				throw: false, // Don't throw on non-2xx — we handle status ourselves
 			});
-			return {
+			const response: FetchResponse = {
 				ok: result.status >= 200 && result.status < 300,
 				status: result.status,
 				text: async () => typeof result.text === "string" ? result.text : new TextDecoder().decode(result.arrayBuffer),
-				json: async () => result.json,
+				json: async () => result.json as unknown,
 				arrayBuffer: async () => result.arrayBuffer,
-			} as FetchResponse;
+			};
+			return response;
 		};
 	}
 
@@ -354,7 +356,7 @@ export default class RemarkableSyncPlugin extends Plugin {
 		const intervalMs = SYNC_INTERVALS[this.settings.syncIntervalLabel];
 		if (intervalMs && intervalMs > 0) {
 			this.syncIntervalId = window.setInterval(() => {
-				this.runSync();
+				void this.runSync();
 			}, intervalMs);
 			this.registerInterval(this.syncIntervalId);
 		}
@@ -379,5 +381,5 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 	return data.buffer.slice(
 		data.byteOffset,
 		data.byteOffset + data.byteLength
-	) as ArrayBuffer;
+	);
 }
