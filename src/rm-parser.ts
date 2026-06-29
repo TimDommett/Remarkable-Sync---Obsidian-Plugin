@@ -111,7 +111,7 @@ export interface Point {
 }
 
 export interface Stroke {
-	penType: number;
+	penType: PenType;
 	color: number;
 	colorArgb: number | null; // ARGB color from tag 8 (v2 color), used by highlighter/shader
 	thicknessScale: number;
@@ -144,6 +144,8 @@ export interface Page {
 	textBlocks: TextBlock[];
 	width: number;
 	height: number;
+	/** reMarkable template (page background) name, e.g. "P Lines medium". */
+	template?: string | null;
 }
 
 // --- Binary reader ---
@@ -567,7 +569,7 @@ function parseTextItem(reader: BinaryReader): CrdtTextItem | null {
 
 function parseTextValue(reader: BinaryReader): { text: string; formatCode: number | null } {
 	const strLen = reader.readVarint();
-	const _isAscii = reader.readU8();
+	reader.readU8(); // isAscii flag — read to advance the stream; value unused
 
 	let text = "";
 	if (strLen > 0 && reader.remaining() >= strLen) {
@@ -653,7 +655,7 @@ function parseFormatEntry(reader: BinaryReader): CrdtTextFormat | null {
 function expandTextItem(item: CrdtTextItem): CrdtTextItem[] {
 	if (item.deletedLength > 0) {
 		// Deleted item: expand to deletedLength single-char items
-		const chars: string[] = Array(item.deletedLength).fill("");
+		const chars: string[] = new Array<string>(item.deletedLength).fill("");
 		return expandChars(item, chars, 1);
 	}
 	if (typeof item.value === "number") {
@@ -863,13 +865,14 @@ export function parseRmFile(data: ArrayBuffer, debug = false): Page {
 	reader.skip(HEADER_LENGTH);
 
 	// Parse blocks
-	let blockCount = 0;
 	while (reader.remaining() >= 8) {
 		try {
 			const blockLen = reader.readU32();
-			const _reserved = reader.readU8();
-			const _minV = reader.readU8();
-			const curV = reader.readU8();
+			// Block header: reserved, min-version, current-version bytes are read
+			// to advance the stream but are not used by the parser.
+			reader.readU8();
+			reader.readU8();
+			reader.readU8();
 			const blockType = reader.readU8();
 
 			const contentStart = reader.tell();
@@ -909,7 +912,6 @@ export function parseRmFile(data: ArrayBuffer, debug = false): Page {
 			}
 
 			reader.seek(contentEnd);
-			blockCount++;
 		} catch {
 			break;
 		}
@@ -1026,7 +1028,7 @@ function parseLineValue(reader: BinaryReader, debug: boolean): Stroke | null {
 	}
 
 	const stroke: Stroke = {
-		penType: 0,
+		penType: PenType.BRUSH,
 		color: 0,
 		colorArgb: null,
 		thicknessScale: 1.0,

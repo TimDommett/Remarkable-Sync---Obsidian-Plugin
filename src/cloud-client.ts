@@ -24,7 +24,7 @@ export interface FetchResponse {
 	ok: boolean;
 	status: number;
 	text(): Promise<string>;
-	json(): Promise<any>;
+	json(): Promise<unknown>;
 	arrayBuffer(): Promise<ArrayBuffer>;
 }
 
@@ -33,18 +33,6 @@ export type FetchFn = (url: string, options?: {
 	headers?: Record<string, string>;
 	body?: string;
 }) => Promise<FetchResponse>;
-
-// Default: use native fetch
-const defaultFetch: FetchFn = async (url, options) => {
-	const resp = await fetch(url, options as RequestInit);
-	return {
-		ok: resp.ok,
-		status: resp.status,
-		text: () => resp.text(),
-		json: () => resp.json(),
-		arrayBuffer: () => resp.arrayBuffer(),
-	};
-};
 
 // --- File I/O abstraction (for testability) ---
 
@@ -57,6 +45,12 @@ export interface FileOps {
 }
 
 // --- Token storage ---
+
+interface StoredToken {
+	device_token?: string | null;
+	user_token?: string | null;
+	user_token_expiry?: string | null;
+}
 
 export class TokenStore {
 	deviceToken: string | null = null;
@@ -79,7 +73,7 @@ export class TokenStore {
 		try {
 			const data = await this.fileOps.readFile(this.tokenPath);
 			if (!data) return;
-			const parsed = JSON.parse(data);
+			const parsed = JSON.parse(data) as StoredToken;
 			this.deviceToken = parsed.device_token ?? null;
 			this.userToken = parsed.user_token ?? null;
 			if (parsed.user_token_expiry) {
@@ -126,11 +120,22 @@ export interface DocumentMetadata {
 	entryHash: string;
 }
 
+// Shape of the per-document `.metadata` JSON stored in the reMarkable cloud.
+// All fields are optional because older/partial documents may omit them.
+interface RawCloudMetadata {
+	visibleName?: string;
+	parent?: string;
+	type?: string;
+	lastModified?: string;
+	pinned?: boolean;
+	deleted?: boolean;
+}
+
 function docFromSync15(
 	uuid: string,
 	version: number,
 	entryHash: string,
-	metadata: Record<string, any>
+	metadata: RawCloudMetadata
 ): DocumentMetadata {
 	return {
 		id: uuid,
@@ -160,9 +165,9 @@ export class RemarkableCloudClient {
 	private docFileIndex: Map<string, [string, string][]> = new Map();
 	private fetchFn: FetchFn;
 
-	constructor(configDir: string, fileOps: FileOps, fetchFn?: FetchFn) {
+	constructor(configDir: string, fileOps: FileOps, fetchFn: FetchFn) {
 		this.tokens = new TokenStore(configDir, fileOps);
-		this.fetchFn = fetchFn ?? defaultFetch;
+		this.fetchFn = fetchFn;
 	}
 
 	async init(): Promise<void> {
@@ -252,7 +257,7 @@ export class RemarkableCloudClient {
 		if (!response.ok) {
 			throw new Error(`Failed to fetch root: HTTP ${response.status}`);
 		}
-		const root = await response.json();
+		const root = (await response.json()) as { hash: string };
 
 		const rootHash = root.hash;
 		const indexData = await this.fetchFile(rootHash, ROOT_INDEX_FILENAME);
@@ -309,11 +314,11 @@ export class RemarkableCloudClient {
 			const subFiles = await this.fetchDocSubIndex(entry.hash, entry.uuid);
 			this.docFileIndex.set(entry.uuid, subFiles);
 
-			let metadata: Record<string, any> = {};
+			let metadata: RawCloudMetadata = {};
 			for (const [filename, fileHash] of subFiles) {
 				if (filename.endsWith(".metadata")) {
 					const metaData = await this.fetchFile(fileHash, filename);
-					metadata = JSON.parse(new TextDecoder().decode(metaData));
+					metadata = JSON.parse(new TextDecoder().decode(metaData)) as RawCloudMetadata;
 					break;
 				}
 			}
