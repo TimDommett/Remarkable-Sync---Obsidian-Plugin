@@ -328,8 +328,13 @@ export default class RemarkableSyncPlugin extends Plugin {
 		);
 	}
 
+	updateRibbonIconSpin(): void {
+		this.setRibbonSpinning(this.isSyncing);
+	}
+
 	private setRibbonSpinning(active: boolean): void {
-		this.ribbonIconEl?.toggleClass("remarkable-sync-spinning", active);
+		const shouldSpin = active && this.settings.spinRibbonIconWhileSyncing;
+		this.ribbonIconEl?.toggleClass("remarkable-sync-spinning", shouldSpin);
 	}
 
 	private updateStatusBar(override?: string): void {
