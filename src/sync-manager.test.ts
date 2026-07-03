@@ -28,7 +28,12 @@ function memoryFileOps(): { ops: FileOps; files: Map<string, string> } {
 	return { ops, files };
 }
 
-function doc(id: string, name: string, version = 1): DocumentMetadata {
+function doc(
+	id: string,
+	name: string,
+	version = 1,
+	entryHash = ""
+): DocumentMetadata {
 	return {
 		id,
 		version,
@@ -38,9 +43,71 @@ function doc(id: string, name: string, version = 1): DocumentMetadata {
 		modifiedTime: "",
 		pinned: false,
 		isTrashed: false,
-		entryHash: "",
+		entryHash,
 	};
 }
+
+// --- Change detection (needsSync) ---
+//
+// The core regression: an edit to an existing page changes the document's
+// content hash but NOT its sub-file count (`version`), so hash comparison is
+// what actually detects in-place edits.
+
+test("needsSync: unseen documents always sync", () => {
+	const state = new SyncState();
+	assert.equal(state.needsSync(doc("doc-1", "New", 3, "hashA")), true);
+});
+
+test("needsSync: unchanged hash is skipped even if version is unchanged", () => {
+	const state = new SyncState();
+	state.syncedDocs["doc-1"] = {
+		version: 3,
+		path: "reMarkable/doc.pdf",
+		hash: "out",
+		entryHash: "hashA",
+		syncedAt: "",
+	};
+	assert.equal(state.needsSync(doc("doc-1", "Same", 3, "hashA")), false);
+});
+
+test("needsSync: edited content re-syncs when only the hash changes (same file count)", () => {
+	const state = new SyncState();
+	state.syncedDocs["doc-1"] = {
+		version: 3,
+		path: "reMarkable/doc.pdf",
+		hash: "out",
+		entryHash: "hashA",
+		syncedAt: "",
+	};
+	// version (sub-file count) is identical; only the content hash moved.
+	assert.equal(state.needsSync(doc("doc-1", "Edited", 3, "hashB")), true);
+});
+
+test("needsSync: legacy state without a stored hash re-syncs once to capture it", () => {
+	const state = new SyncState();
+	state.syncedDocs["doc-1"] = {
+		version: 3,
+		path: "reMarkable/doc.pdf",
+		hash: "out",
+		syncedAt: "",
+	}; // no entryHash (written by an older plugin version)
+	assert.equal(state.needsSync(doc("doc-1", "Legacy", 3, "hashA")), true);
+});
+
+test("needsSync: falls back to version when no current hash is available", () => {
+	const state = new SyncState();
+	state.syncedDocs["doc-1"] = {
+		version: 3,
+		path: "reMarkable/doc.pdf",
+		hash: "out",
+		entryHash: "hashA",
+		syncedAt: "",
+	};
+	// doc.entryHash empty -> cannot use hash; version unchanged -> skip.
+	assert.equal(state.needsSync(doc("doc-1", "NoHash", 3, "")), false);
+	// version increased -> sync.
+	assert.equal(state.needsSync(doc("doc-1", "NoHash", 4, "")), true);
+});
 
 /** Fake client whose downloads always fail, forcing a sync error. */
 function failingClient(docs: DocumentMetadata[]): RemarkableCloudClient {
