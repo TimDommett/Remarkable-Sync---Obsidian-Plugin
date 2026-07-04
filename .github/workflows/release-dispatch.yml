@@ -1,4 +1,3 @@
-> /dev/null
 # Temporary twin of release.yml, dispatchable manually because the release
 # tag could not be pushed from the remote session. Safe to delete after use.
 name: Release plugin (manual dispatch)
