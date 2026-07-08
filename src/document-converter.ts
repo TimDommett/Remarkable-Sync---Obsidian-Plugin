@@ -14,6 +14,7 @@ import {
 	renderNotebookToPdf,
 	computeTextBlocksBottomRawY,
 } from "./pdf-renderer";
+import { resolveTemplate } from "./template-renderer";
 
 // --- Data structures ---
 
@@ -24,6 +25,32 @@ export interface PageInfo {
 	verticalScroll: number | null;
 }
 
+// Shape of the document-level `.metadata` JSON in a reMarkable archive.
+export interface RawDocMetadata {
+	visibleName?: string;
+	template?: string;
+}
+
+// One entry in the newer-format `cPages.pages` array. May be a bare page-id
+// string or an object carrying the id plus optional per-page settings.
+interface RawCPage {
+	id?: string;
+	verticalScroll?: { value?: number };
+	template?: { value?: string };
+}
+
+// Shape of the `.content` JSON. Only the fields the converter reads are typed.
+export interface RawContentInfo {
+	fileType?: string;
+	pages?: string[];
+	cPages?: { pages?: (RawCPage | string)[] };
+}
+
+// Older per-page `*-metadata.json` sidecar.
+interface RawPageMeta {
+	template?: string;
+}
+
 export interface DocumentContent {
 	docId: string;
 	docType: "notebook" | "pdf" | "epub";
@@ -31,7 +58,7 @@ export interface DocumentContent {
 	pages: PageInfo[];
 	originalPdf: Uint8Array | null;
 	originalEpub: Uint8Array | null;
-	metadata: Record<string, any>;
+	metadata: RawDocMetadata;
 }
 
 // --- Converter ---
@@ -40,11 +67,17 @@ export class DocumentConverter {
 	private docId: string;
 	private files: Map<string, Uint8Array>;
 	private content: DocumentContent | null = null;
-	private contentInfo: Record<string, any> = {};
+	private contentInfo: RawContentInfo = {};
+	private onWarn?: (message: string) => void;
 
-	constructor(docId: string, files: Map<string, Uint8Array>) {
+	constructor(
+		docId: string,
+		files: Map<string, Uint8Array>,
+		onWarn?: (message: string) => void
+	) {
 		this.docId = docId;
 		this.files = files;
+		this.onWarn = onWarn;
 	}
 
 	private textOf(name: string): string {
@@ -90,6 +123,7 @@ export class DocumentConverter {
 
 		const parsedPages: Page[] = [];
 		const backgroundPdfs: (Uint8Array | null)[] = [];
+		const unsupportedTemplates = new Set<string>();
 
 		for (let i = 0; i < content.pages.length; i++) {
 			const pageInfo = content.pages[i];
@@ -116,6 +150,14 @@ export class DocumentConverter {
 				parsedPages.push(emptyPage(pageInfo.pageId));
 			}
 
+			// Carry the page's template (background) onto the parsed page so the
+			// renderer can draw it. Templates only apply to notebook pages; an
+			// imported PDF page uses the original PDF as its background instead.
+			parsedPages[parsedPages.length - 1].template = pageInfo.template;
+			if (!content.originalPdf && pageInfo.template && resolveTemplate(pageInfo.template) === null) {
+				unsupportedTemplates.add(pageInfo.template);
+			}
+
 			if (content.originalPdf) {
 				try {
 					const bgPage = await this.extractPdfPage(content.originalPdf, i);
@@ -128,6 +170,12 @@ export class DocumentConverter {
 			}
 		}
 
+		for (const name of unsupportedTemplates) {
+			this.onWarn?.(
+				`Template "${name}" is not supported yet; page background left blank.`
+			);
+		}
+
 		if (parsedPages.length === 1) {
 			return renderPageToPdf(parsedPages[0], backgroundPdfs[0] ?? undefined);
 		}
@@ -136,11 +184,11 @@ export class DocumentConverter {
 
 	// --- Archive processing ---
 
-	private readMetadata(fileList: string[]): Record<string, any> {
+	private readMetadata(fileList: string[]): RawDocMetadata {
 		for (const name of fileList) {
 			if (name.endsWith(".metadata")) {
 				try {
-					return JSON.parse(this.textOf(name));
+					return JSON.parse(this.textOf(name)) as RawDocMetadata;
 				} catch {
 					// ignore
 				}
@@ -149,11 +197,11 @@ export class DocumentConverter {
 		return {};
 	}
 
-	private readContentInfo(fileList: string[]): Record<string, any> {
+	private readContentInfo(fileList: string[]): RawContentInfo {
 		for (const name of fileList) {
 			if (name.endsWith(".content")) {
 				try {
-					return JSON.parse(this.textOf(name));
+					return JSON.parse(this.textOf(name)) as RawContentInfo;
 				} catch {
 					// ignore
 				}
@@ -163,7 +211,7 @@ export class DocumentConverter {
 	}
 
 	private determineDocType(
-		contentInfo: Record<string, any>,
+		contentInfo: RawContentInfo,
 		fileList: string[]
 	): "notebook" | "pdf" | "epub" {
 		for (const name of fileList) {
@@ -178,18 +226,24 @@ export class DocumentConverter {
 
 	private extractPages(
 		fileList: string[],
-		contentInfo: Record<string, any>
+		contentInfo: RawContentInfo
 	): PageInfo[] {
 		let pageIds: string[] = contentInfo.pages ?? [];
 
 		// Check cPages (newer format) and extract per-page metadata
 		const cPages = contentInfo.cPages;
 		const pageVerticalScroll = new Map<string, number>();
-		if (cPages && cPages.pages) {
-			pageIds = cPages.pages.map((p: any) => {
-				const id = typeof p === "object" ? p.id ?? p : p;
+		const pageTemplate = new Map<string, string>();
+		if (cPages?.pages) {
+			pageIds = cPages.pages.map((p): string => {
+				const id = typeof p === "object" ? p.id ?? "" : p;
 				if (typeof p === "object" && p.verticalScroll?.value != null) {
 					pageVerticalScroll.set(id, p.verticalScroll.value);
+				}
+				// The page's template (background) name lives here in the v6
+				// format, e.g. { template: { value: "P Lines medium" } }.
+				if (typeof p === "object" && typeof p.template?.value === "string") {
+					pageTemplate.set(id, p.template.value);
 				}
 				return id;
 			});
@@ -213,7 +267,7 @@ export class DocumentConverter {
 			const pageInfo: PageInfo = {
 				pageId,
 				rmData: null,
-				template: null,
+				template: pageTemplate.get(pageId) ?? null,
 				verticalScroll: pageVerticalScroll.get(pageId) ?? null,
 			};
 
@@ -229,8 +283,12 @@ export class DocumentConverter {
 			for (const name of fileList) {
 				if (name.includes(`${pageId}-metadata.json`)) {
 					try {
-						const meta = JSON.parse(this.textOf(name));
-						pageInfo.template = meta.template ?? null;
+						const meta = JSON.parse(this.textOf(name)) as RawPageMeta;
+						// Older per-page metadata location; only use it as a
+						// fallback so it never clobbers a cPages template.
+						if (meta.template != null && pageInfo.template == null) {
+							pageInfo.template = meta.template;
+						}
 					} catch {
 						// ignore
 					}
@@ -343,8 +401,9 @@ function emptyPage(pageId: string): Page {
 
 export async function convertDocument(
 	docId: string,
-	files: Map<string, Uint8Array>
+	files: Map<string, Uint8Array>,
+	onWarn?: (message: string) => void
 ): Promise<Uint8Array> {
-	const converter = new DocumentConverter(docId, files);
+	const converter = new DocumentConverter(docId, files, onWarn);
 	return converter.convertToPdf();
 }

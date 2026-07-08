@@ -37,7 +37,10 @@ export class SyncState {
 		try {
 			const data = await fileOps.readFile(stateFile);
 			if (!data) return state;
-			const parsed = JSON.parse(data);
+			const parsed = JSON.parse(data) as {
+				last_sync?: string | null;
+				synced_docs?: Record<string, SyncedDocInfo>;
+			};
 			state.lastSync = parsed.last_sync ?? null;
 			const docs = parsed.synced_docs;
 			// Guard against hand-edited/corrupt state: anything but a plain object resets.
@@ -311,7 +314,9 @@ export class SyncManager {
 		const zipData = await client.downloadDocument(doc.id);
 
 		progress(`Converting: ${docPath}...`);
-		const pdfData = await convertDocument(doc.id, zipData);
+		const pdfData = await convertDocument(doc.id, zipData, (msg) =>
+			progress(`[WARN] ${docPath}: ${msg}`)
+		);
 
 		// Sanitize path for Windows (backslash included: names must not create folders)
 		const safePath = docPath.replace(/[<>:"|?*\\]/g, "_");

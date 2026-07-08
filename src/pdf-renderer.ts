@@ -18,6 +18,7 @@ import {
 
 import type { Page, Stroke, Point, TextBlock } from "./rm-parser";
 import { PenType } from "./rm-parser";
+import { resolveTemplate, drawTemplate } from "./template-renderer";
 
 // --- Constants ---
 
@@ -106,7 +107,7 @@ const DEFAULT_FONT: FontSetting = { fontKey: StandardFonts.Helvetica, fontSize: 
 
 // --- Helpers ---
 
-function getPenStyle(penType: number): PenStyle {
+function getPenStyle(penType: PenType): PenStyle {
 	return PEN_STYLES[penType] ?? { opacity: 1.0, isHighlighter: false };
 }
 
@@ -128,7 +129,7 @@ function getArgbColor(argb: number): { r: number; g: number; b: number; a: numbe
 // In our 1:1 PDF point space: widthPt = rawWidth * SCALE * WIDTH_FACTOR.
 const WIDTH_FACTOR = 0.216;
 
-function pointWidthPt(point: Point, penType: number): number {
+function pointWidthPt(point: Point, penType: PenType): number {
 	const base = point.width * SCALE * WIDTH_FACTOR;
 	switch (penType) {
 		case PenType.BALLPOINT_1:
@@ -166,7 +167,10 @@ function sanitizeForWinAnsi(text: string): string {
 	return text
 		.replace(/\u2028/g, "\n")  // LINE SEPARATOR → newline
 		.replace(/\u2029/g, "\n")  // PARAGRAPH SEPARATOR → newline
-		.replace(/[^\x00-\xFF\u2022]/g, ""); // Strip non-WinAnsi chars (keep bullet)
+		// Strip characters outside the WinAnsi range (code points > U+00FF),
+		// keeping the bullet (U+2022). Equivalent to /[^\x00-\xFF•]/ but
+		// without a control character in the pattern (no-control-regex).
+		.replace(/[Ā-￿]/g, (ch) => (ch === "•" ? ch : ""));
 }
 
 function wrapText(text: string, maxWidth: number, font: PDFFont, fontSize: number): string[] {
@@ -451,6 +455,20 @@ export async function renderPageToPdf(
 
 	const geo = computePageGeometry(page, font, boldFont);
 	const pdfPage = doc.addPage([geo.pageWidthPt, geo.pageHeightPt]);
+
+	// Draw the page template (background) first, so strokes and text sit on top.
+	// Imported PDF pages get their background from the original PDF via
+	// mergeWithBackground, so only draw a template when there is no background.
+	if (!backgroundPdf) {
+		const spec = resolveTemplate(page.template);
+		if (spec) {
+			drawTemplate(pdfPage, spec, {
+				pageWidthPt: geo.pageWidthPt,
+				pageHeightPt: geo.pageHeightPt,
+				coordScale: COORD_SCALE,
+			});
+		}
+	}
 
 	const extGStates = new Map<number, string>();
 

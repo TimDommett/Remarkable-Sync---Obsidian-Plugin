@@ -220,3 +220,54 @@ test("un-annotated multi-page PDF converts every page", async () => {
 		[612, 792],
 	]);
 });
+
+// --- Notebook template backgrounds ---
+//
+// A reMarkable notebook records each page's template (background) name in
+// .content under cPages.pages[].template.value. That name used to be dropped by
+// extractPages, and nothing drew a background, so templated notebooks (lined,
+// grid, etc.) synced onto plain white. convertDocument must now capture the
+// template and render it.
+
+// A minimal notebook archive: a .content with cPages listing pages and their
+// template names, a .metadata, and no .pdf (notebooks have no background PDF).
+// Pages carry no .rm files, so they are empty — the template is still drawn.
+function notebookArchive(docId: string, templates: (string | null)[]): Map<string, Uint8Array> {
+	const enc = (s: string) => new TextEncoder().encode(s);
+	const pages = templates.map((template, i) => ({
+		id: `page-${i}`,
+		...(template != null ? { template: { value: template } } : {}),
+	}));
+	const files = new Map<string, Uint8Array>();
+	files.set(`${docId}.metadata`, enc(JSON.stringify({ visibleName: "Notebook", type: "DocumentType" })));
+	files.set(`${docId}.content`, enc(JSON.stringify({ fileType: "notebook", cPages: { pages } })));
+	return files;
+}
+
+test("a notebook template is captured and rendered as a page background", async () => {
+	const blank = await convertDocument("nb-blank", notebookArchive("nb-blank", ["Blank"]));
+	const lined = await convertDocument("nb-lined", notebookArchive("nb-lined", ["P Lines medium"]));
+
+	// Both produce a valid single-page PDF...
+	assert.equal((await PDFDocument.load(blank)).getPageCount(), 1);
+	assert.equal((await PDFDocument.load(lined)).getPageCount(), 1);
+	// ...but the lined page carries extra vector content (the ruled background)
+	// that the blank page does not, proving the template was drawn.
+	assert.ok(
+		lined.byteLength > blank.byteLength,
+		`lined (${lined.byteLength}) should exceed blank (${blank.byteLength})`
+	);
+});
+
+test("an unsupported template warns and still converts (blank fallback)", async () => {
+	const warnings: string[] = [];
+	const out = await convertDocument(
+		"nb-x",
+		notebookArchive("nb-x", ["P Planner Weekly"]),
+		(msg) => warnings.push(msg)
+	);
+
+	assert.equal((await PDFDocument.load(out)).getPageCount(), 1);
+	assert.equal(warnings.length, 1);
+	assert.match(warnings[0], /P Planner Weekly/);
+});
