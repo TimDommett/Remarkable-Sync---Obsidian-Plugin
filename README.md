@@ -20,6 +20,7 @@ If you find this plugin useful, please consider [supporting its development](htt
 - **High-fidelity PDF rendering** - all 9 pen types with calibrated colors, widths, and opacity
 - **Full color support** - 14 colors including shader and highlighter
 - **Text rendering** - paragraph styles (headings, bold, bullets, checkboxes, numbered lists)
+- **Markdown export** - optionally save typed text as a Markdown note, alongside or instead of the PDF
 - **Layered drawing support** - preserves layer ordering
 - **Extended pages** - vertically scrolled pages rendered correctly
 - **Incremental sync** - only downloads changed documents
@@ -62,7 +63,7 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 
 - Click the tablet icon in the Obsidian ribbon to sync
 - Or use the command palette: **reMarkable Sync: Sync now**
-- Documents are saved as PDFs in your configured vault subfolder
+- Documents are saved as PDFs in your configured vault subfolder (or as Markdown, see **Output format**)
 - Enable auto-sync in settings for hands-free operation
 
 ## Configuration
@@ -72,6 +73,7 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 | Sync folder | `reMarkable/` | Subfolder in your vault for synced documents |
 | Auto-sync | Off | Sync automatically on a timer |
 | Sync interval | 5 min | How often to auto-sync |
+| Output format | PDF | PDF, Markdown, or both. Markdown contains only typed text (handwriting and drawings are skipped), is overwritten on each sync of that document, and is not written for documents without typed text |
 
 ## Development
 
@@ -83,6 +85,7 @@ src/                          # TypeScript source code
   rm-parser.ts                # v6 binary .rm format parser
   pdf-renderer.ts             # PDF generation via pdf-lib
   document-converter.ts       # reMarkable archive → PDF pipeline (pdf-lib)
+  markdown-converter.ts       # Typed text → Markdown export
   sync-manager.ts             # Sync orchestration with incremental state tracking
   main.ts                     # Obsidian plugin entry point
   settings.ts                 # Settings tab UI

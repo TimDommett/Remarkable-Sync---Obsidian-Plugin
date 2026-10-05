@@ -8,7 +8,8 @@
  */
 
 import { PDFDocument } from "pdf-lib";
-import { parseRmFile, type Page } from "./rm-parser";
+import { parseRmFile, type Page, type TextBlock } from "./rm-parser";
+import { textBlocksToMarkdown } from "./markdown-converter";
 import {
 	renderPageToPdf,
 	renderNotebookToPdf,
@@ -132,6 +133,28 @@ export class DocumentConverter {
 			return renderPageToPdf(parsedPages[0], backgroundPdfs[0] ?? undefined);
 		}
 		return renderNotebookToPdf(parsedPages, backgroundPdfs);
+	}
+
+	/**
+	 * Export the document's typed text as Markdown (handwriting is ignored).
+	 * Returns null when no page contains typed text.
+	 */
+	async convertToMarkdown(): Promise<string | null> {
+		const content = await this.parse();
+		const blocks: TextBlock[] = [];
+
+		for (const pageInfo of content.pages) {
+			if (!pageInfo.rmData) continue;
+			const { buffer, byteOffset, byteLength } = pageInfo.rmData;
+			try {
+				const page = parseRmFile(buffer.slice(byteOffset, byteOffset + byteLength) as ArrayBuffer);
+				blocks.push(...page.textBlocks);
+			} catch {
+				// Same policy as the PDF path: an unparseable page contributes nothing.
+			}
+		}
+
+		return textBlocksToMarkdown(blocks);
 	}
 
 	// --- Archive processing ---
@@ -347,4 +370,12 @@ export async function convertDocument(
 ): Promise<Uint8Array> {
 	const converter = new DocumentConverter(docId, files);
 	return converter.convertToPdf();
+}
+
+export async function convertDocumentToMarkdown(
+	docId: string,
+	files: Map<string, Uint8Array>
+): Promise<string | null> {
+	const converter = new DocumentConverter(docId, files);
+	return converter.convertToMarkdown();
 }

@@ -1,6 +1,23 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type RemarkableSyncPlugin from "./main";
-import { SYNC_INTERVALS, AUTH_URL, DEFAULT_SUBFOLDER, SYNC_LOG_FILENAME } from "./constants";
+import {
+	SYNC_INTERVALS,
+	AUTH_URL,
+	DEFAULT_SUBFOLDER,
+	SYNC_LOG_FILENAME,
+	DEFAULT_OUTPUT_FORMAT,
+	type OutputFormat,
+} from "./constants";
+
+const OUTPUT_FORMAT_LABELS: Record<OutputFormat, string> = {
+	pdf: "PDF",
+	markdown: "Markdown (typed text only)",
+	both: "PDF and Markdown",
+};
+
+export function isOutputFormat(value: unknown): value is OutputFormat {
+	return typeof value === "string" && Object.prototype.hasOwnProperty.call(OUTPUT_FORMAT_LABELS, value);
+}
 
 export interface RemarkableSyncSettings {
 	subfolder: string;
@@ -9,6 +26,7 @@ export interface RemarkableSyncSettings {
 	lastSyncTime: string;
 	isAuthenticated: boolean;
 	writeSyncLog: boolean;
+	outputFormat: OutputFormat;
 }
 
 export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
@@ -18,6 +36,7 @@ export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
 	lastSyncTime: "",
 	isAuthenticated: false,
 	writeSyncLog: true,
+	outputFormat: DEFAULT_OUTPUT_FORMAT,
 };
 
 export class RemarkableSyncSettingTab extends PluginSettingTab {
@@ -119,6 +138,25 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+
+		new Setting(containerEl)
+			.setName("Output format")
+			.setDesc(
+				"Markdown contains only typed text (no handwriting or drawings) and is " +
+					"overwritten whenever the document syncs. Documents without typed text " +
+					"get no Markdown file. Run \"Force re-sync all documents\" to apply a " +
+					"change to documents that are already synced."
+			)
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(OUTPUT_FORMAT_LABELS)) {
+					dropdown.addOption(value, label);
+				}
+				dropdown.setValue(this.plugin.settings.outputFormat);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.outputFormat = value as OutputFormat;
+					await this.plugin.saveSettings();
+				});
+			});
 
 		new Setting(containerEl)
 			.setName("Folder filter")

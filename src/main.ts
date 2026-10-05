@@ -1,5 +1,10 @@
 import { Notice, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
-import { RemarkableSyncSettings, DEFAULT_SETTINGS, RemarkableSyncSettingTab } from "./settings";
+import {
+	RemarkableSyncSettings,
+	DEFAULT_SETTINGS,
+	RemarkableSyncSettingTab,
+	isOutputFormat,
+} from "./settings";
 import { RemarkableCloudClient, type FileOps, type FetchFn, type FetchResponse } from "./cloud-client";
 import { SyncManager } from "./sync-manager";
 import { SYNC_INTERVALS, SYNC_LOG_FILENAME } from "./constants";
@@ -74,6 +79,8 @@ export default class RemarkableSyncPlugin extends Plugin {
 
 	async loadSettings(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		if (!isOutputFormat(this.settings.outputFormat)) this.settings.outputFormat = DEFAULT_SETTINGS.outputFormat;
+		
 	}
 
 	async saveSettings(): Promise<void> {
@@ -258,6 +265,7 @@ export default class RemarkableSyncPlugin extends Plugin {
 				force,
 				writeLog: this.settings.writeSyncLog,
 				logFileName: SYNC_LOG_FILENAME,
+				outputFormat: this.settings.outputFormat,
 			});
 
 			this.settings.lastSyncTime = new Date().toISOString();

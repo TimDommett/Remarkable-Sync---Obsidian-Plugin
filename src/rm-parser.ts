@@ -99,6 +99,16 @@ export enum PenType {
 	SHADER = 23,
 }
 
+// Paragraph style codes stored in a page's root text block.
+export const STYLE_PLAIN = 1;
+export const STYLE_HEADING = 2;
+export const STYLE_BOLD = 3;
+export const STYLE_BULLET = 4;
+export const STYLE_BULLET2 = 5;
+export const STYLE_CHECKBOX = 6;
+export const STYLE_CHECKBOX_CHECKED = 7;
+export const STYLE_NUMBERED = 10;
+
 // --- Data structures ---
 
 export interface Point {
@@ -397,9 +407,6 @@ function computeOffsetForNode(
 // Line heights in reMarkable pixels, matching pdf-renderer.ts font settings.
 // Computed as: lineHeightPt * (RM_WIDTH_PX / RM_WIDTH_PT) = lineHeightPt * 1404/514
 const RM_PX_PER_PT = 1404 / 514;
-const STYLE_PLAIN = 1;
-const STYLE_HEADING = 2;
-const STYLE_BOLD = 3;
 
 function getLineHeightPx(style: number): number {
 	switch (style) {

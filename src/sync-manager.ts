@@ -13,19 +13,28 @@ import {
 	buildFolderTree,
 	isDocument,
 } from "./cloud-client";
-import { convertDocument } from "./document-converter";
-import { SYNC_LOG_FILENAME, SYNC_LOG_MAX_BYTES } from "./constants";
+import { convertDocument, convertDocumentToMarkdown } from "./document-converter";
+import {
+	SYNC_LOG_FILENAME,
+	SYNC_LOG_MAX_BYTES,
+	DEFAULT_OUTPUT_FORMAT,
+	type OutputFormat,
+} from "./constants";
 
 // --- Sync state ---
 
 export interface SyncedDocInfo {
 	/** Sub-file count at last sync (the root index has no real revision number). */
 	version: number;
+	/** Vault-relative PDF path; "" if a PDF has never been written for this doc. */
 	path: string;
 	hash: string;
 	syncedAt: string;
 	/** Root-index entry hash; changes on any edit. Absent in state files from before entry-hash tracking. */
 	entryHash?: string;
+	/** Vault-relative path of the exported Markdown, if one has been written. */
+	markdownPath?: string;
+	markdownHash?: string;
 }
 
 export class SyncState {
@@ -108,6 +117,8 @@ export interface SyncOptions {
 	writeLog?: boolean;
 	/** Override the log filename (default: SYNC_LOG_FILENAME). */
 	logFileName?: string;
+	/** What to write for each document (default: "pdf"). */
+	outputFormat?: OutputFormat;
 }
 
 export class SyncManager {
@@ -116,6 +127,8 @@ export class SyncManager {
 	private fileOps: FileOps;
 	private state: SyncState;
 	private vaultPath: string;
+	/** Documents present on the tablet in the current run (see isClaimedByOtherDoc). */
+	private liveDocIds = new Set<string>();
 
 	constructor(
 		vaultPath: string,
@@ -158,6 +171,7 @@ export class SyncManager {
 			logPath: null,
 		};
 		const writeLog = opts.writeLog ?? true;
+		const outputFormat = opts.outputFormat ?? DEFAULT_OUTPUT_FORMAT;
 		const logFileName = opts.logFileName ?? SYNC_LOG_FILENAME;
 
 		// Capture every progress line into the run log, then forward to the caller.
@@ -204,6 +218,7 @@ export class SyncManager {
 		const docsToSync = documents.filter(
 			(doc) => isDocument(doc) && !doc.isTrashed
 		);
+		this.liveDocIds = new Set(docsToSync.map((doc) => doc.id));
 
 		// Apply folder filter
 		const filtered = opts.folderFilter
@@ -229,7 +244,7 @@ export class SyncManager {
 			}
 
 			try {
-				await this.syncDocument(client, doc, docPath, progress);
+				await this.syncDocument(client, doc, docPath, progress, outputFormat);
 				results.synced.push(docPath);
 				progress(`[OK] Synced: ${docPath}`);
 			} catch (e) {
@@ -305,38 +320,116 @@ export class SyncManager {
 		client: RemarkableCloudClient,
 		doc: DocumentMetadata,
 		docPath: string,
-		progress: ProgressCallback
+		progress: ProgressCallback,
+		outputFormat: OutputFormat
 	): Promise<void> {
 		progress(`Downloading: ${docPath}...`);
-		const zipData = await client.downloadDocument(doc.id);
+		const files = await client.downloadDocument(doc.id);
 
 		progress(`Converting: ${docPath}...`);
-		const pdfData = await convertDocument(doc.id, zipData);
 
 		// Sanitize path for Windows (backslash included: names must not create folders)
 		const safePath = docPath.replace(/[<>:"|?*\\]/g, "_");
-		const outputPath = joinPath(this.outputDir, safePath + ".pdf");
+		const previous = this.state.syncedDocs[doc.id];
 
-		// Ensure parent directory exists
+		// Start from the previous record so outputs that are switched off keep
+		// their last-known paths (and are left untouched on disk).
+		const record: SyncedDocInfo = {
+			version: doc.version,
+			path: previous?.path ?? "",
+			hash: previous?.hash ?? "",
+			syncedAt: new Date().toISOString(),
+			entryHash: doc.entryHash,
+			markdownPath: previous?.markdownPath,
+			markdownHash: previous?.markdownHash,
+		};
+
+		const writePdf = outputFormat !== "markdown";
+		const writeMarkdown = outputFormat === "markdown" || outputFormat === "both";
+
+		if (writePdf) {
+			const pdfData = await convertDocument(doc.id, files);
+			const written = await this.writeOutput(
+				doc.id,
+				safePath + ".pdf",
+				simpleHash(pdfData),
+				{ path: previous?.path, hash: previous?.hash },
+				(p) => this.fileOps.writeBinaryFile(p, pdfData),
+				progress
+			);
+			record.path = written.path;
+			record.hash = written.hash;
+		}
+
+		if (writeMarkdown) {
+			const markdown = await convertDocumentToMarkdown(doc.id, files);
+			const fileName = safePath + ".md";
+			if (markdown === null) {
+				// A previously exported .md is deliberately kept: an empty result
+				// can't be told apart from a page that failed to parse.
+				if (!writePdf) progress(`No typed text in ${docPath}; nothing written.`);
+			} else if (!(await this.mayWriteMarkdown(doc.id, fileName, previous?.markdownPath, markdown))) {
+				// Users keep their own notes next to synced PDFs; never clobber one.
+				progress(
+					`Skipped Markdown for ${docPath}: ${fileName} already exists ` +
+						`and was not created by reMarkable Sync.`
+				);
+			} else {
+				const written = await this.writeOutput(
+					doc.id,
+					fileName,
+					simpleHash(new TextEncoder().encode(markdown)),
+					{ path: previous?.markdownPath, hash: previous?.markdownHash },
+					(p) => this.fileOps.writeFile(p, markdown),
+					progress
+				);
+				record.markdownPath = written.path;
+				record.markdownHash = written.hash;
+			}
+		}
+
+		this.state.syncedDocs[doc.id] = record;
+		await this.state.save(this.stateFile, this.fileOps);
+	}
+
+	/**
+	 * Write one output file for a document, skipping the write when the content
+	 * hash and path are unchanged, and removing the copy at the previous path
+	 * when the document was renamed or moved.
+	 */
+	private async writeOutput(
+		docId: string,
+		fileName: string,
+		hash: string,
+		previous: { path?: string; hash?: string },
+		write: (outputPath: string) => Promise<void>,
+		progress: ProgressCallback
+	): Promise<{ path: string; hash: string }> {
+		const outputPath = joinPath(this.outputDir, fileName);
+		const relativePath = this.toVaultRelative(outputPath);
+
 		const parentDir = outputPath.substring(0, outputPath.lastIndexOf("/"));
 		if (parentDir) await this.fileOps.mkdir(parentDir);
-
-		const hash = simpleHash(pdfData);
-		const relativePath = this.toVaultRelative(outputPath);
-		const previous = this.state.syncedDocs[doc.id];
 
 		// Metadata-only changes re-render the same bytes; skip the write to spare
 		// vault watchers (Obsidian Sync, backups) a spurious mtime bump.
 		const unchanged =
-			previous?.hash === hash &&
-			previous?.path === relativePath &&
+			previous.hash === hash &&
+			previous.path === relativePath &&
 			(await this.fileOps.exists(outputPath));
 		if (!unchanged) {
-			await this.fileOps.writeBinaryFile(outputPath, pdfData);
+			await write(outputPath);
 		}
 
-		// A rename/move re-syncs to a new path; drop the stale PDF at the old one.
-		if (previous && previous.path !== relativePath) {
+		// A rename/move re-syncs to a new path; drop the stale copy at the old one.
+		// An empty previous path means this output was never written, and a path
+		// another document now owns (e.g. a new document reusing the old name)
+		// is no longer ours to delete.
+		if (
+			previous.path &&
+			previous.path !== relativePath &&
+			!this.isClaimedByOtherDoc(docId, previous.path)
+		) {
 			const oldPath = joinPath(this.vaultPath, previous.path);
 			try {
 				if (await this.fileOps.exists(oldPath)) {
@@ -348,14 +441,49 @@ export class SyncManager {
 			}
 		}
 
-		this.state.syncedDocs[doc.id] = {
-			version: doc.version,
-			path: relativePath,
-			hash,
-			syncedAt: new Date().toISOString(),
-			entryHash: doc.entryHash,
-		};
-		await this.state.save(this.stateFile, this.fileOps);
+		return { path: relativePath, hash };
+	}
+
+	/**
+	 * True if another document still on the tablet records `relativePath` as
+	 * one of its outputs. Entries for trashed/deleted documents are never
+	 * pruned from the state, so they don't count.
+	 */
+	private isClaimedByOtherDoc(docId: string, relativePath: string): boolean {
+		return Object.entries(this.state.syncedDocs).some(
+			([id, info]) =>
+				id !== docId &&
+				this.liveDocIds.has(id) &&
+				(info.path === relativePath || info.markdownPath === relativePath)
+		);
+	}
+
+	/**
+	 * Whether this document may write its Markdown to `fileName`. Allowed when
+	 * the path is free, already this document's, holds identical content (e.g.
+	 * after a state reset), or holds another document's export, which is then
+	 * handed over. Anything else is a file the user created and is left alone.
+	 */
+	private async mayWriteMarkdown(
+		docId: string,
+		fileName: string,
+		ownedPath: string | undefined,
+		content: string
+	): Promise<boolean> {
+		const outputPath = joinPath(this.outputDir, fileName);
+		const relativePath = this.toVaultRelative(outputPath);
+		if (relativePath === ownedPath) return true;
+		if (!(await this.fileOps.exists(outputPath))) return true;
+
+		for (const [id, info] of Object.entries(this.state.syncedDocs)) {
+			if (id !== docId && info.markdownPath === relativePath) {
+				delete info.markdownPath;
+				delete info.markdownHash;
+				return true;
+			}
+		}
+
+		return (await this.fileOps.readFile(outputPath)) === content;
 	}
 
 	/** Strip the vault prefix so state paths stay portable across vault locations. */

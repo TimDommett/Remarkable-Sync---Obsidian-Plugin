@@ -17,7 +17,17 @@ import {
 } from "pdf-lib";
 
 import type { Page, Stroke, Point, TextBlock } from "./rm-parser";
-import { PenType } from "./rm-parser";
+import {
+	PenType,
+	STYLE_PLAIN,
+	STYLE_HEADING,
+	STYLE_BOLD,
+	STYLE_BULLET,
+	STYLE_BULLET2,
+	STYLE_CHECKBOX,
+	STYLE_CHECKBOX_CHECKED,
+	STYLE_NUMBERED,
+} from "./rm-parser";
 
 // --- Constants ---
 
@@ -79,16 +89,6 @@ const PEN_STYLES: Record<number, PenStyle> = {
 	[PenType.CALLIGRAPHY]: { opacity: 1.0, isHighlighter: false },
 	[PenType.SHADER]: { opacity: 0.3, isHighlighter: true },
 };
-
-// Paragraph styles
-const STYLE_PLAIN = 1;
-const STYLE_HEADING = 2;
-const STYLE_BOLD = 3;
-const STYLE_BULLET = 4;
-const STYLE_BULLET2 = 5;
-const STYLE_CHECKBOX = 6;
-const STYLE_CHECKBOX_CHECKED = 7;
-const STYLE_NUMBERED = 10;
 
 interface FontSetting {
 	fontKey: typeof StandardFonts[keyof typeof StandardFonts];

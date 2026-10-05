@@ -8,6 +8,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { SyncManager, SyncState } from "./sync-manager";
 import type { DocumentMetadata, FileOps, RemarkableCloudClient } from "./cloud-client";
 
@@ -365,4 +367,266 @@ test("an empty subfolder writes at the vault root without a leading slash", asyn
 	for (const key of files.keys()) {
 		assert.ok(!key.startsWith("/"), `path must not start with '/': ${key}`);
 	}
+});
+
+// --- Markdown output ---
+
+/** Raw .rm data of a single-page reference sheet. */
+function referencePage(sheet: string): Uint8Array {
+	const dir = join(__dirname, "..", "reference_sheets", sheet);
+	const rmFile = readdirSync(dir).find((f) => f.endsWith(".rm"));
+	assert.ok(rmFile, `${sheet} reference sheet .rm file should exist`);
+	return new Uint8Array(readFileSync(join(dir, rmFile)));
+}
+
+/**
+ * Fake client serving one-page documents built from a reference sheet. The
+ * "Text" sheet has typed text in every paragraph style; "Ballpoint" is
+ * handwriting only.
+ */
+function referenceClient(docs: DocumentMetadata[], sheet = "Text"): RemarkableCloudClient {
+	const page = referencePage(sheet);
+	return {
+		isAuthenticated: true,
+		listDocuments: async () => docs,
+		downloadDocument: async (id: string) =>
+			new Map([
+				[`${id}.content`, new TextEncoder().encode('{"pages":["p1"]}')],
+				[`${id}/p1.rm`, page],
+			]),
+	} as unknown as RemarkableCloudClient;
+}
+
+/** Wrap FileOps to count text writes per path (state/log files included). */
+function countTextWrites(ops: FileOps): Map<string, number> {
+	const counts = new Map<string, number>();
+	const writeFile = ops.writeFile;
+	ops.writeFile = async (p: string, data: string) => {
+		counts.set(p, (counts.get(p) ?? 0) + 1);
+		await writeFile(p, data);
+	};
+	return counts;
+}
+
+test("default output writes only a PDF", async () => {
+	const { ops, files } = memoryFileOps();
+	const manager = new SyncManager("/vault", "reMarkable", ops, new SyncState());
+
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+	});
+
+	assert.ok(files.has("/vault/reMarkable/Notes.pdf"));
+	assert.equal(files.has("/vault/reMarkable/Notes.md"), false);
+});
+
+test("'both' writes the PDF and a Markdown file of the typed text", async () => {
+	const { ops, files } = memoryFileOps();
+	const state = new SyncState();
+	const manager = new SyncManager("/vault", "reMarkable", ops, state);
+
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+
+	assert.ok(files.has("/vault/reMarkable/Notes.pdf"));
+	const md = files.get("/vault/reMarkable/Notes.md");
+	assert.ok(md, "Markdown should be written");
+	assert.match(md!, /^# Title\n## Sub Title\nText\n- Bulletpoints\n/);
+	assert.equal(state.syncedDocs["doc-1"].path, "reMarkable/Notes.pdf");
+	assert.equal(state.syncedDocs["doc-1"].markdownPath, "reMarkable/Notes.md");
+});
+
+test("'markdown' writes no PDF and never touches an empty PDF path", async () => {
+	const { ops, files, binaryWrites } = memoryFileOps();
+	const state = new SyncState();
+	const manager = new SyncManager("/vault", "reMarkable", ops, state);
+
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+		outputFormat: "markdown",
+	});
+
+	assert.equal(binaryWrites.length, 0);
+	assert.ok(files.has("/vault/reMarkable/Notes.md"));
+	assert.equal(state.syncedDocs["doc-1"].path, "");
+
+	// Switching to PDF later must not treat the empty path as a stale copy
+	// (joinPath(vault, "") is the vault root itself).
+	let deletedVaultRoot = false;
+	const deleteFile = ops.deleteFile;
+	ops.deleteFile = async (p: string) => {
+		if (p === "/vault") deletedVaultRoot = true;
+		await deleteFile(p);
+	};
+	files.set("/vault", "<dir>");
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-2")]), {
+		writeLog: false,
+		outputFormat: "pdf",
+	});
+	assert.equal(deletedVaultRoot, false);
+	assert.ok(files.has("/vault/reMarkable/Notes.pdf"));
+	assert.ok(files.has("/vault/reMarkable/Notes.md"), "switched-off output is left in place");
+	assert.equal(state.syncedDocs["doc-1"].markdownPath, "reMarkable/Notes.md");
+});
+
+test("a handwriting-only document gets no Markdown file", async () => {
+	const { ops, files } = memoryFileOps();
+	const state = new SyncState();
+	const manager = new SyncManager("/vault", "reMarkable", ops, state);
+
+	await manager.sync(referenceClient([doc("doc-1", "Sketch", 1, "hash-1")], "Ballpoint"), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+
+	assert.ok(files.has("/vault/reMarkable/Sketch.pdf"));
+	assert.equal(files.has("/vault/reMarkable/Sketch.md"), false);
+	assert.equal(state.syncedDocs["doc-1"].markdownPath, undefined);
+});
+
+test("losing all typed text keeps the previously exported Markdown", async () => {
+	const { ops, files } = memoryFileOps();
+	const state = new SyncState();
+	const manager = new SyncManager("/vault", "reMarkable", ops, state);
+
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-2")], "Ballpoint"), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+
+	assert.ok(files.has("/vault/reMarkable/Notes.md"));
+	assert.equal(state.syncedDocs["doc-1"].markdownPath, "reMarkable/Notes.md");
+});
+
+test("an existing note the plugin did not write is never overwritten", async () => {
+	const { ops, files } = memoryFileOps();
+	const state = new SyncState();
+	const manager = new SyncManager("/vault", "reMarkable", ops, state);
+	files.set("/vault/reMarkable/Notes.md", "my own notes about Notes.pdf");
+
+	const results = await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+
+	assert.equal(files.get("/vault/reMarkable/Notes.md"), "my own notes about Notes.pdf");
+	assert.ok(files.has("/vault/reMarkable/Notes.pdf"), "PDF is still synced");
+	assert.equal(state.syncedDocs["doc-1"].markdownPath, undefined);
+	assert.ok(results.log.some((l) => l.includes("Skipped Markdown for Notes")));
+});
+
+test("an existing file with identical content is adopted (e.g. after a state reset)", async () => {
+	const first = memoryFileOps();
+	await new SyncManager("/vault", "reMarkable", first.ops, new SyncState()).sync(
+		referenceClient([doc("doc-1", "Notes", 1, "hash-1")]),
+		{ writeLog: false, outputFormat: "markdown" }
+	);
+	const exported = first.files.get("/vault/reMarkable/Notes.md");
+	assert.ok(exported);
+
+	// Fresh state, same file already on disk.
+	const { ops, files } = memoryFileOps();
+	files.set("/vault/reMarkable/Notes.md", exported!);
+	const state = new SyncState();
+	await new SyncManager("/vault", "reMarkable", ops, state).sync(
+		referenceClient([doc("doc-1", "Notes", 1, "hash-1")]),
+		{ writeLog: false, outputFormat: "markdown" }
+	);
+
+	assert.equal(state.syncedDocs["doc-1"].markdownPath, "reMarkable/Notes.md");
+});
+
+test("unchanged Markdown is not rewritten on re-sync", async () => {
+	const { ops } = memoryFileOps();
+	const writes = countTextWrites(ops);
+	const manager = new SyncManager("/vault", "reMarkable", ops, new SyncState());
+
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+		outputFormat: "markdown",
+	});
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-2")]), {
+		writeLog: false,
+		outputFormat: "markdown",
+	});
+
+	assert.equal(writes.get("/vault/reMarkable/Notes.md"), 1);
+});
+
+test("a renamed document moves its Markdown instead of leaving a duplicate", async () => {
+	const { ops, files } = memoryFileOps();
+	const manager = new SyncManager("/vault", "reMarkable", ops, new SyncState());
+
+	await manager.sync(referenceClient([doc("doc-1", "Notes", 1, "hash-1")]), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+	await manager.sync(referenceClient([doc("doc-1", "Meeting", 1, "hash-2")]), {
+		writeLog: false,
+		outputFormat: "both",
+	});
+
+	assert.ok(files.has("/vault/reMarkable/Meeting.md"));
+	assert.ok(files.has("/vault/reMarkable/Meeting.pdf"));
+	assert.equal(files.has("/vault/reMarkable/Notes.md"), false);
+	assert.equal(files.has("/vault/reMarkable/Notes.pdf"), false);
+});
+
+test("a rename never deletes a file another document now owns", async () => {
+	const { ops, files } = memoryFileOps();
+	const manager = new SyncManager("/vault", "reMarkable", ops, new SyncState());
+
+	await manager.sync(successClient([doc("doc-a", "Notes", 1, "a1")]), { writeLog: false });
+
+	// In one run, A is renamed away and a new document B takes its old name.
+	// B syncs first, so A's stale path is B's file by the time A is processed.
+	await manager.sync(
+		successClient([doc("doc-b", "Notes", 1, "b1"), doc("doc-a", "Old", 1, "a2")]),
+		{ writeLog: false }
+	);
+
+	assert.ok(files.has("/vault/reMarkable/Old.pdf"));
+	assert.ok(files.has("/vault/reMarkable/Notes.pdf"), "doc B's PDF must not be deleted");
+});
+
+test("a deleted document's stale entry doesn't block rename cleanup (PDF default)", async () => {
+	const { ops, files } = memoryFileOps();
+	const manager = new SyncManager("/vault", "reMarkable", ops, new SyncState());
+
+	// X writes Notes.pdf, then is deleted; its state entry lingers.
+	await manager.sync(successClient([doc("doc-x", "Notes", 1, "x1")]), { writeLog: false });
+	// A new document B reuses the name, then is renamed.
+	await manager.sync(successClient([doc("doc-b", "Notes", 1, "b1")]), { writeLog: false });
+	await manager.sync(successClient([doc("doc-b", "Other", 1, "b2")]), { writeLog: false });
+
+	assert.ok(files.has("/vault/reMarkable/Other.pdf"));
+	assert.equal(files.has("/vault/reMarkable/Notes.pdf"), false, "stale copy removed as before");
+});
+
+test("a new document takes over Markdown another document left behind", async () => {
+	const { ops, files } = memoryFileOps();
+	const state = new SyncState();
+	const manager = new SyncManager("/vault", "reMarkable", ops, state);
+	const opts = { writeLog: false, outputFormat: "markdown" as const };
+
+	// A exports Notes.md, then loses its typed text and is renamed (Notes.md kept).
+	await manager.sync(referenceClient([doc("doc-a", "Notes", 1, "a1")]), opts);
+	await manager.sync(referenceClient([doc("doc-a", "Old", 1, "a2")], "Ballpoint"), opts);
+
+	// B, with different text, is named "Notes": the plugin-written file is handed over.
+	await manager.sync(referenceClient([doc("doc-b", "Notes", 1, "b1")], "Highlighter"), opts);
+	assert.match(files.get("/vault/reMarkable/Notes.md")!, /No sizes/);
+	assert.equal(state.syncedDocs["doc-b"].markdownPath, "reMarkable/Notes.md");
+	assert.equal(state.syncedDocs["doc-a"].markdownPath, undefined);
+
+	// A regains text: it writes Old.md and leaves B's file alone.
+	await manager.sync(referenceClient([doc("doc-a", "Old", 1, "a3")]), opts);
+	assert.ok(files.has("/vault/reMarkable/Old.md"));
+	assert.match(files.get("/vault/reMarkable/Notes.md")!, /No sizes/);
 });

@@ -16,3 +16,7 @@ export const SYNC_LOG_FILENAME = "_reMarkable Sync Log.md";
 
 // Cap the on-disk log so it can't grow without bound across many sync runs.
 export const SYNC_LOG_MAX_BYTES = 250_000;
+
+/** What a sync writes for each document. */
+export type OutputFormat = "pdf" | "markdown" | "both";
+export const DEFAULT_OUTPUT_FORMAT: OutputFormat = "pdf";

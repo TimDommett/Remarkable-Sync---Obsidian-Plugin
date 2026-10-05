@@ -29,6 +29,7 @@ src/
   cloud-client.ts        # reMarkable Cloud API client (auth + sync v3 protocol)
   sync-manager.ts        # Sync orchestration, incremental state, sync logging
   document-converter.ts  # reMarkable archive -> PDF pipeline (pdf-lib)
+  markdown-converter.ts  # Typed text -> Markdown export (no deps)
   rm-parser.ts           # Binary .rm v6 format parser (strokes + CRDT text), zero deps
   pdf-renderer.ts        # Page -> PDF rendering via pdf-lib (calibrated colors/widths)
   settings.ts            # Settings tab UI
