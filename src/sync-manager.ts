@@ -94,12 +94,37 @@ export interface SyncResults {
 	logPath: string | null;
 }
 
+/**
+ * Split a comma-separated list of reMarkable folder paths (e.g. "Archive,
+ * Work/Old") into normalized entries, dropping empty ones.
+ */
+export function parseFolderList(value: string): string[] {
+	return value
+		.split(",")
+		.map(normalizeFolderPath)
+		.filter((f) => f !== "");
+}
+
+function normalizeFolderPath(folder: string): string {
+	return folder.trim().replace(/^\/+|\/+$/g, "");
+}
+
+/**
+ * Whether a document path lies inside one of the excluded folders. Matches
+ * whole path segments, so excluding "Work" does not exclude "Workouts".
+ */
+export function isInExcludedFolder(docPath: string, excluded: string[]): boolean {
+	return excluded.some((folder) => docPath.startsWith(`${folder}/`));
+}
+
 export type ProgressCallback = (message: string) => void;
 
 // --- Sync manager ---
 
 export interface SyncOptions {
 	folderFilter?: string;
+	/** reMarkable folder paths whose documents (including subfolders) are skipped. */
+	excludedFolders?: string[];
 	force?: boolean;
 	dryRun?: boolean;
 	subfolder?: string;
@@ -212,9 +237,18 @@ export class SyncManager {
 				)
 			: docsToSync;
 
-		progress(`Found ${filtered.length} documents to check`);
+		const excluded = (opts.excludedFolders ?? [])
+			.map(normalizeFolderPath)
+			.filter((f) => f !== "");
+		const included = excluded.length
+			? filtered.filter(
+					(doc) => !isInExcludedFolder(folderPaths.get(doc.id) ?? doc.name, excluded)
+				)
+			: filtered;
 
-		for (const doc of filtered) {
+		progress(`Found ${included.length} documents to check`);
+
+		for (const doc of included) {
 			const docPath = folderPaths.get(doc.id) ?? doc.name;
 
 			if (!opts.force && !this.state.needsSync(doc)) {
