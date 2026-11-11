@@ -70,6 +70,7 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Sync folder | `reMarkable/` | Subfolder in your vault for synced documents |
+| Excluded folders | (none) | Comma-separated reMarkable folders (and their subfolders) to skip, e.g. `Archive, Work/Old` |
 | Auto-sync | Off | Sync automatically on a timer |
 | Sync interval | 5 min | How often to auto-sync |
 

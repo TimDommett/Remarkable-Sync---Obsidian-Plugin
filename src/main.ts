@@ -1,7 +1,7 @@
 import { Notice, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
 import { RemarkableSyncSettings, DEFAULT_SETTINGS, RemarkableSyncSettingTab } from "./settings";
 import { RemarkableCloudClient, type FileOps, type FetchFn, type FetchResponse } from "./cloud-client";
-import { SyncManager } from "./sync-manager";
+import { SyncManager, parseFolderList } from "./sync-manager";
 import { SYNC_INTERVALS, SYNC_LOG_FILENAME } from "./constants";
 import * as path from "path";
 import * as fs from "fs";
@@ -255,6 +255,7 @@ export default class RemarkableSyncPlugin extends Plugin {
 
 			const results = await manager.sync(this.client, {
 				folderFilter: this.settings.folderFilter || undefined,
+				excludedFolders: parseFolderList(this.settings.excludedFolders),
 				force,
 				writeLog: this.settings.writeSyncLog,
 				logFileName: SYNC_LOG_FILENAME,
