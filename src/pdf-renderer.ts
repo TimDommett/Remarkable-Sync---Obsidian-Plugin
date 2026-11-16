@@ -128,7 +128,7 @@ function getArgbColor(argb: number): { r: number; g: number; b: number; a: numbe
 // In our 1:1 PDF point space: widthPt = rawWidth * SCALE * WIDTH_FACTOR.
 const WIDTH_FACTOR = 0.216;
 
-function pointWidthPt(point: Point, penType: number): number {
+function pointWidthPt(point: Point, penType: PenType): number {
 	const base = point.width * SCALE * WIDTH_FACTOR;
 	switch (penType) {
 		case PenType.BALLPOINT_1:
@@ -166,7 +166,9 @@ function sanitizeForWinAnsi(text: string): string {
 	return text
 		.replace(/\u2028/g, "\n")  // LINE SEPARATOR → newline
 		.replace(/\u2029/g, "\n")  // PARAGRAPH SEPARATOR → newline
-		.replace(/[^\x00-\xFF\u2022]/g, ""); // Strip non-WinAnsi chars (keep bullet)
+		// Strip non-WinAnsi chars: every UTF-16 code unit above Latin-1 (U+00FF)
+		// except the bullet U+2022. Same set as the negated class [^\x00-\xFF\u2022].
+		.replace(/[\u0100-\u2021\u2023-\uffff]/g, "");
 }
 
 function wrapText(text: string, maxWidth: number, font: PDFFont, fontSize: number): string[] {

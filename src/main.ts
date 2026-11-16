@@ -1,6 +1,6 @@
 import { Notice, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
 import { RemarkableSyncSettings, DEFAULT_SETTINGS, RemarkableSyncSettingTab } from "./settings";
-import { RemarkableCloudClient, type FileOps, type FetchFn, type FetchResponse } from "./cloud-client";
+import { RemarkableCloudClient, type FileOps, type FetchFn } from "./cloud-client";
 import { SyncManager, parseFolderList } from "./sync-manager";
 import { SYNC_INTERVALS, SYNC_LOG_FILENAME } from "./constants";
 import * as path from "path";
@@ -73,7 +73,8 @@ export default class RemarkableSyncPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const saved = (await this.loadData()) as Partial<RemarkableSyncSettings> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -98,9 +99,9 @@ export default class RemarkableSyncPlugin extends Plugin {
 				ok: result.status >= 200 && result.status < 300,
 				status: result.status,
 				text: async () => typeof result.text === "string" ? result.text : new TextDecoder().decode(result.arrayBuffer),
-				json: async () => result.json,
+				json: async () => result.json as unknown,
 				arrayBuffer: async () => result.arrayBuffer,
-			} as FetchResponse;
+			};
 		};
 	}
 
@@ -362,7 +363,8 @@ export default class RemarkableSyncPlugin extends Plugin {
 		const intervalMs = SYNC_INTERVALS[this.settings.syncIntervalLabel];
 		if (intervalMs && intervalMs > 0) {
 			this.syncIntervalId = window.setInterval(() => {
-				this.runSync();
+				// runSync reports its own failures via Notice; nothing to await here.
+				void this.runSync();
 			}, intervalMs);
 			this.registerInterval(this.syncIntervalId);
 		}
@@ -387,5 +389,5 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 	return data.buffer.slice(
 		data.byteOffset,
 		data.byteOffset + data.byteLength
-	) as ArrayBuffer;
+	);
 }

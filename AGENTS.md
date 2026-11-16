@@ -36,6 +36,7 @@ src/
   *.test.ts              # Node test-runner unit tests
 
 run-sync.ts              # Standalone CLI sync (no Obsidian) for end-to-end testing
+node-fetch.ts            # Native-fetch FetchFn for the CLI tools (the plugin uses requestUrl)
 re-render.ts             # Re-render .rm files to PDF for comparison
 compare-reference-sheets.ts  # Compare rendered metadata vs ground truth
 compare-pixels.mjs       # Rasterized pixel comparison (MuPDF WASM)
@@ -57,7 +58,9 @@ tsconfig.json
   **Keep core modules free of direct `obsidian` imports.** Only `main.ts` and
   `settings.ts` should import from `obsidian`.
 - **HTTP in the plugin uses Obsidian's `requestUrl`**, not `fetch`, to avoid CORS
-  restrictions. Tests/CLI inject native fetch.
+  restrictions. `RemarkableCloudClient` requires an injected `FetchFn`; tests
+  pass mocks and the CLI tools pass `nodeFetch` (`node-fetch.ts`), so the plugin
+  source never references the global `fetch`.
 - **reMarkable sync v3 quirk:** blob requests to `/sync/v3/files/{hash}` require
   an `rm-filename` header matching the blob's logical name (index blobs use the
   `.docSchema` extension; content blobs use their real filename). Getting this

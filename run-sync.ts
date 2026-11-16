@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { RemarkableCloudClient, type FileOps } from './src/cloud-client';
+import { nodeFetch } from './node-fetch';
 import { SyncManager } from './src/sync-manager';
 
 const fileOps: FileOps = {
@@ -16,7 +17,7 @@ async function main() {
 	const configDir = path.join(process.env.USERPROFILE || process.env.HOME || '.', '.remarkable-sync');
 	console.log('Config dir:', configDir);
 
-	const client = new RemarkableCloudClient(configDir, fileOps);
+	const client = new RemarkableCloudClient(configDir, fileOps, nodeFetch);
 	await client.init();
 	console.log('Authenticated:', client.isAuthenticated);
 
