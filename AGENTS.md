@@ -107,6 +107,11 @@ Notes:
   `styles.css`); that folder is git-ignored and regenerated on every build.
 - Type-checking uses `tsc -noEmit -skipLibCheck`; `strictNullChecks` and
   `noImplicitAny` are on. Always ensure `npx tsc -noEmit -skipLibCheck` is clean.
+- `npm run lint` runs `eslint-plugin-obsidianmd`'s `recommended` preset, the rule
+  set the community directory's automated review scans each release with
+  (including typescript-eslint's type-checked rules). Keep it clean: type parsed
+  JSON with an interface plus `as` rather than `any`, and mark intentionally
+  un-awaited promises with `void`.
 - Unit tests use the built-in Node test runner (`node:test` + `node:assert/strict`)
   executed via `tsx`. Name new tests `src/<module>.test.ts`.
 - `npm test` (the CLI sync) performs a real network sync and requires a valid
