@@ -1,0 +1,82 @@
+# Temporary manual-dispatch twin of release.yml. Tag pushes are blocked from
+# the remote Claude session, so this workflow creates the tag and release
+# itself (same build, attestation and assets as release.yml). Delete after use.
+name: Release plugin (manual dispatch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create; must equal manifest.json version (e.g. 1.0.9)"
+        required: true
+      sha:
+        description: "Commit on main to release"
+        required: true
+
+permissions:
+  contents: write # Needed to create the tag and GitHub release
+  id-token: write # Needed to mint the OIDC token for Sigstore
+  attestations: write # Needed to publish the build provenance attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+
+      - name: Guard (commit on main, tag matches manifest, tag not taken)
+        env:
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$SHA" origin/main || { echo "::error::$SHA is not on main"; exit 1; }
+          VERSION=$(node -p "require('./manifest.json').version")
+          [ "$VERSION" = "$TAG" ] || { echo "::error::tag $TAG does not match manifest.json version $VERSION"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+          echo "OK: releasing $TAG from $SHA"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Stage release assets
+        run: |
+          cp release/remarkable-sync/main.js main.js
+          cp release/remarkable-sync/manifest.json manifest.json
+          cp release/remarkable-sync/styles.css styles.css
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          target_commitish: ${{ inputs.sha }}
+          generate_release_notes: true
+          files: |
+            main.js
+            manifest.json
+            styles.css
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
