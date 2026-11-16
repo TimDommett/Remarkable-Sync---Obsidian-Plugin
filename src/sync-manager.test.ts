@@ -8,7 +8,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SyncManager, SyncState } from "./sync-manager";
+import { SyncManager, SyncState, isInExcludedFolder, parseFolderList } from "./sync-manager";
 import type { DocumentMetadata, FileOps, RemarkableCloudClient } from "./cloud-client";
 
 /** In-memory FileOps that records all writes (binary writes also logged by path). */
@@ -365,4 +365,46 @@ test("an empty subfolder writes at the vault root without a leading slash", asyn
 	for (const key of files.keys()) {
 		assert.ok(!key.startsWith("/"), `path must not start with '/': ${key}`);
 	}
+});
+
+test("parseFolderList trims entries, strips slashes and drops empties", () => {
+	assert.deepEqual(parseFolderList(" Archive , /Work/Old/ ,, "), ["Archive", "Work/Old"]);
+	assert.deepEqual(parseFolderList(""), []);
+});
+
+test("isInExcludedFolder matches whole path segments only", () => {
+	assert.equal(isInExcludedFolder("Work/Notes", ["Work"]), true);
+	assert.equal(isInExcludedFolder("Work/Old/Notes", ["Work/Old"]), true);
+	assert.equal(isInExcludedFolder("Workouts/Plan", ["Work"]), false);
+	assert.equal(isInExcludedFolder("Work", ["Work"]), false);
+});
+
+test("sync skips documents inside excluded folders and their subfolders", async () => {
+	const { ops } = memoryFileOps();
+	const folder = (id: string, name: string, parent = ""): DocumentMetadata => ({
+		...doc(id, name),
+		parent,
+		docType: "CollectionType",
+	});
+	const inFolder = (id: string, name: string, parent: string): DocumentMetadata => ({
+		...doc(id, name),
+		parent,
+	});
+	const manager = new SyncManager("/vault", "reMarkable", ops, new SyncState());
+
+	const results = await manager.sync(
+		failingClient([
+			folder("f-archive", "Archive"),
+			folder("f-nested", "Nested", "f-archive"),
+			folder("f-work", "Work"),
+			inFolder("d-archived", "Old", "f-archive"),
+			inFolder("d-nested", "Deep", "f-nested"),
+			inFolder("d-work", "Plan", "f-work"),
+			doc("d-root", "Loose"),
+		]),
+		{ writeLog: false, excludedFolders: ["Archive"] }
+	);
+
+	const attempted = results.errorDetails.map((e) => e.docId).sort();
+	assert.deepEqual(attempted, ["d-root", "d-work"]);
 });

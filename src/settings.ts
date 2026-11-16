@@ -6,6 +6,7 @@ export interface RemarkableSyncSettings {
 	subfolder: string;
 	syncIntervalLabel: string;
 	folderFilter: string;
+	excludedFolders: string;
 	lastSyncTime: string;
 	isAuthenticated: boolean;
 	writeSyncLog: boolean;
@@ -15,6 +16,7 @@ export const DEFAULT_SETTINGS: RemarkableSyncSettings = {
 	subfolder: DEFAULT_SUBFOLDER,
 	syncIntervalLabel: "Manual only",
 	folderFilter: "",
+	excludedFolders: "",
 	lastSyncTime: "",
 	isAuthenticated: false,
 	writeSyncLog: true,
@@ -129,6 +131,19 @@ export class RemarkableSyncSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.folderFilter)
 					.onChange(async (value) => {
 						this.plugin.settings.folderFilter = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Excluded folders")
+			.setDesc("Comma-separated reMarkable folders to skip, including their subfolders. Use full paths for nested folders.")
+			.addText((text) =>
+				text
+					.setPlaceholder("e.g., Archive, Work/Old")
+					.setValue(this.plugin.settings.excludedFolders)
+					.onChange(async (value) => {
+						this.plugin.settings.excludedFolders = value;
 						await this.plugin.saveSettings();
 					})
 			);
