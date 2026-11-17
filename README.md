@@ -49,14 +49,14 @@ Ballpoint, Fineliner, Marker, Pencil, Mechanical Pencil, Calligraphy Pen, Paintb
 ## Privacy & data
 
 - This plugin connects to the **reMarkable Cloud API** (`*.remarkable.com`) to download your documents. No data is sent to any other service.
-- Authentication tokens are stored locally on your machine at `~/.remarkable-sync/token.json`, outside the Obsidian vault.
+- Authentication tokens are stored locally on your machine in Obsidian's storage for the vault, outside the vault's files, so they are never synced or committed along with your notes. (Up to 1.0.9 they lived in `~/.remarkable-sync/token.json`; 1.1.0 copies them across on first launch, so you stay signed in, and leaves that file in place.)
 - No telemetry or analytics are collected.
 
 ## Authentication
 
 1. Go to https://my.remarkable.com/device/desktop/connect to get a one-time code
 2. Enter the code in the plugin settings (Obsidian Settings > reMarkable Sync)
-3. Auth tokens are stored locally at `~/.remarkable-sync/token.json`
+3. Auth tokens are stored locally, outside your vault's files (see "Privacy & data" above)
 
 ## Usage
 
@@ -150,8 +150,10 @@ npm run test:unit      # Unit tests (cloud client)
 npx tsx run-sync.ts    # Full sync of all documents into ./reMarkable
 ```
 
-Register once via the plugin (or `run-sync.ts`) before syncing — get a one-time
-auth code from https://my.remarkable.com/device/desktop/connect.
+Register the CLI once before syncing with
+`npx tsx run-sync.ts --register <one-time code>` (get a code from
+https://my.remarkable.com/device/desktop/connect). The CLI keeps its own token in
+`~/.remarkable-sync/token.json`, separate from the plugin's.
 
 ### Reference sheets
 

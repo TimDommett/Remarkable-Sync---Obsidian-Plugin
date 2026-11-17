@@ -32,6 +32,8 @@ src/
   rm-parser.ts           # Binary .rm v6 format parser (strokes + CRDT text), zero deps
   pdf-renderer.ts        # Page -> PDF rendering via pdf-lib (calibrated colors/widths)
   settings.ts            # Settings tab UI
+  token-migration.ts     # One-time move of the auth token from ~/.remarkable-sync into local storage
+  node-os.d.ts           # Typing for the one Node API used (os.homedir), so no @types/node is needed
   constants.ts           # Shared constants
   *.test.ts              # Node test-runner unit tests
 
@@ -54,7 +56,8 @@ tsconfig.json
 - **`FileOps` / `FetchFn` abstractions** (`cloud-client.ts`): the core logic is
   deliberately Obsidian-independent. File I/O and HTTP are injected as interfaces
   so the same code runs under Node (the `run-sync.ts` CLI and unit tests) and
-  under Obsidian (`main.ts` provides Node `fs` ops + Obsidian `requestUrl`).
+  under Obsidian (`main.ts` provides vault-adapter and local-storage ops +
+  Obsidian `requestUrl`).
   **Keep core modules free of direct `obsidian` imports.** Only `main.ts` and
   `settings.ts` should import from `obsidian`.
 - **HTTP in the plugin uses Obsidian's `requestUrl`**, not `fetch`, to avoid CORS
@@ -66,8 +69,12 @@ tsconfig.json
   `.docSchema` extension; content blobs use their real filename). Getting this
   wrong returns HTTP 400. See `cloud-client.ts` and `cloud-client.test.ts` — this
   is a regression-tested area, so don't change it casually.
-- **Auth tokens** are stored locally at `~/.remarkable-sync/token.json`, outside
-  the vault. Never write tokens or secrets into the vault.
+- **Auth tokens** live in the vault's local storage (`app.saveLocalStorage`),
+  outside the vault's files. Versions up to 1.0.9 used `~/.remarkable-sync/token.json`;
+  `token-migration.ts` copies it across on first load (read-only, so other vaults
+  and older versions keep working) and shows a reconnect notice if a signed-in
+  user's token can't be found. Never write tokens or secrets into the vault. The
+  CLI tools still use the file (`npx tsx run-sync.ts --register <code>`).
 - **Incremental sync:** `sync-manager.ts` tracks synced documents (version + hash)
   in `<sync folder>/.remarkable-sync-state.json` and skips unchanged docs.
 - **Sync logging:** each run writes a human-readable Markdown log to
@@ -115,7 +122,8 @@ Notes:
 - Unit tests use the built-in Node test runner (`node:test` + `node:assert/strict`)
   executed via `tsx`. Name new tests `src/<module>.test.ts`.
 - `npm test` (the CLI sync) performs a real network sync and requires a valid
-  token at `~/.remarkable-sync/token.json`; it is **not** a hermetic test.
+  token at `~/.remarkable-sync/token.json` (register with
+  `npx tsx run-sync.ts --register <code>`); it is **not** a hermetic test.
 
 ### Run the dev build in a real Obsidian vault
 
