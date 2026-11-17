@@ -22,7 +22,7 @@
 		"eslint": "^9.0.0",
 		"eslint-plugin-obsidianmd": "^0.3.0",
 		"mupdf": "^1.27.0",
-		"obsidian": "latest",
+		"obsidian": "^1.14.4",
 		"pdfjs-dist": "^5.4.624",
 		"ts-node": "^10.9.2",
 		"tslib": "2.4.0",
