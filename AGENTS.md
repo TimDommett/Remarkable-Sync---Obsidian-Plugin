@@ -31,7 +31,7 @@ src/
   document-converter.ts  # reMarkable archive -> PDF pipeline (pdf-lib)
   rm-parser.ts           # Binary .rm v6 format parser (strokes + CRDT text), zero deps
   pdf-renderer.ts        # Page -> PDF rendering via pdf-lib (calibrated colors/widths)
-  settings.ts            # Settings tab UI
+  settings.ts            # Settings tab UI (getSettingDefinitions() for 1.13+, display() fallback)
   token-migration.ts     # One-time move of the auth token from ~/.remarkable-sync into local storage
   node-os.d.ts           # Typing for the one Node API used (os.homedir), so no @types/node is needed
   constants.ts           # Shared constants
@@ -168,6 +168,8 @@ wrong.
 
 - **Indentation: tabs** (match the existing files).
 - Keep modules cohesive and Obsidian-free outside `main.ts` / `settings.ts`.
+- Settings rows are built by shared builder methods in `settings.ts`, used by both
+  `getSettingDefinitions()` and `display()`; add a new setting to both lists.
 - Avoid adding heavy dependencies; the plugin bundles its runtime deps.
 - Comments should explain non-obvious intent/trade-offs, not narrate the code.
 - Match existing error-handling style: surface actionable messages to the user
