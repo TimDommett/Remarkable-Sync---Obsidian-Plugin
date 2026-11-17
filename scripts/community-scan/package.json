@@ -1,0 +1,13 @@
+{
+	"name": "remarkable-sync-community-scan",
+	"private": true,
+	"description": "Local replica of the Obsidian community plugin directory's automated review scan. See CONTRIBUTING.md.",
+	"type": "module",
+	"dependencies": {
+		"eslint": "9.39.5",
+		"eslint-plugin-obsidianmd": "0.6.0",
+		"obsidian": "1.14.4",
+		"pdf-lib": "1.17.1",
+		"typescript": "5.4.5"
+	}
+}

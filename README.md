@@ -182,11 +182,13 @@ npx tsx re-render.ts                   # Re-render .rm files and compare output
 
 ## Contributing
 
-Contributions are welcome! If you'd like to help improve this plugin:
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first. It covers
+setup, the checks to run before opening a pull request, and the rules of Obsidian's
+automated plugin review, which you can run locally with `npm run scan:community`.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Run `npm run build` to verify your changes compile
+3. Run the checks in [CONTRIBUTING.md](CONTRIBUTING.md#before-you-open-a-pull-request)
 4. Test in Obsidian (see "Testing in Obsidian" above)
 5. Commit your changes (`git commit -m "Add my feature"`)
 6. Push to your branch (`git push origin feature/my-feature`)

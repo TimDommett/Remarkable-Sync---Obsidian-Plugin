@@ -32,6 +32,9 @@ jobs:
         with:
           node-version: "lts/*"
           cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            scripts/community-scan/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -47,3 +50,12 @@ jobs:
 
       - name: Unit tests
         run: npm run test:unit
+
+      # Replica of the community plugin directory's automated review (see
+      # CONTRIBUTING.md). Fails on any finding, so a change that would lower the
+      # plugin's review score is caught here instead of after a release.
+      - name: Install community review scan
+        run: npm ci --prefix scripts/community-scan
+
+      - name: Community review scan
+        run: npm run scan:community

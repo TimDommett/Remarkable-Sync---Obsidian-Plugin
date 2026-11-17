@@ -39,6 +39,7 @@ src/
 
 run-sync.ts              # Standalone CLI sync (no Obsidian) for end-to-end testing
 node-fetch.ts            # Native-fetch FetchFn for the CLI tools (the plugin uses requestUrl)
+scripts/community-scan/  # Replica of the community directory's automated review (npm run scan:community)
 re-render.ts             # Re-render .rm files to PDF for comparison
 compare-reference-sheets.ts  # Compare rendered metadata vs ground truth
 compare-pixels.mjs       # Rasterized pixel comparison (MuPDF WASM)
@@ -107,6 +108,9 @@ npm run dev            # esbuild watch mode (rebuilds on change)
 npm run test:unit      # unit tests: npx tsx --test src/cloud-client.test.ts
 npx tsx --test src/sync-manager.test.ts   # run a specific test file
 npm test               # end-to-end CLI sync (run-sync.ts) — needs real auth
+
+npm ci --prefix scripts/community-scan   # once: install the review-scan toolchain
+npm run scan:community # replica of the community directory's review; must be clean
 ```
 
 Notes:
@@ -119,6 +123,10 @@ Notes:
   (including typescript-eslint's type-checked rules). Keep it clean: type parsed
   JSON with an interface plus `as` rather than `any`, and mark intentionally
   un-awaited promises with `void`.
+- `npm run scan:community` reproduces the directory's scan (no `@types/node`,
+  latest Obsidian typings, tests excluded, plus its behavior checks: no Node `fs`,
+  no environment variables or `os` identity calls). CI fails on any finding.
+  The rules and their sources are in CONTRIBUTING.md.
 - Unit tests use the built-in Node test runner (`node:test` + `node:assert/strict`)
   executed via `tsx`. Name new tests `src/<module>.test.ts`.
 - `npm test` (the CLI sync) performs a real network sync and requires a valid
@@ -170,6 +178,8 @@ wrong.
 - Keep modules cohesive and Obsidian-free outside `main.ts` / `settings.ts`.
 - Settings rows are built by shared builder methods in `settings.ts`, used by both
   `getSettingDefinitions()` and `display()`; add a new setting to both lists.
+- Follow the review rules in CONTRIBUTING.md (no `any`, `requestUrl` not `fetch`,
+  no Node `fs`, no APIs newer than `minAppVersion`).
 - Avoid adding heavy dependencies; the plugin bundles its runtime deps.
 - Comments should explain non-obvious intent/trade-offs, not narrate the code.
 - Match existing error-handling style: surface actionable messages to the user
