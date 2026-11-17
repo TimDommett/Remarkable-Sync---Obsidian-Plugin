@@ -1,7 +1,7 @@
 {
 	"id": "remarkable-sync",
 	"name": "reMarkable Sync",
-	"version": "1.0.9",
+	"version": "1.1.0",
 	"minAppVersion": "1.8.7",
 	"description": "Sync your reMarkable Paper Pro documents to your vault as PDFs.",
 	"author": "Tim Dommett",

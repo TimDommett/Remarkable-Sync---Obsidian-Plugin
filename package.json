@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-remarkable-sync",
-	"version": "1.0.9",
+	"version": "1.1.0",
 	"description": "Obsidian plugin for syncing reMarkable documents",
 	"main": "main.js",
 	"scripts": {
