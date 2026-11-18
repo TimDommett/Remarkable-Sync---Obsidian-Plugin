@@ -7,6 +7,7 @@
 import path from 'path';
 import fs from 'fs';
 import { RemarkableCloudClient, type FileOps, buildFolderTree } from './src/cloud-client';
+import { nodeFetch } from './node-fetch';
 
 const fileOps: FileOps = {
 	readFile: async (p) => { try { return await fs.promises.readFile(p, 'utf-8'); } catch { return null; } },
@@ -19,7 +20,7 @@ const fileOps: FileOps = {
 
 async function main() {
 	const configDir = path.join(process.env.HOME || '.', '.remarkable-sync');
-	const client = new RemarkableCloudClient(configDir, fileOps);
+	const client = new RemarkableCloudClient(configDir, fileOps, nodeFetch);
 	await client.init();
 
 	if (!client.isAuthenticated) {

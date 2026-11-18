@@ -31,11 +31,15 @@ src/
   document-converter.ts  # reMarkable archive -> PDF pipeline (pdf-lib)
   rm-parser.ts           # Binary .rm v6 format parser (strokes + CRDT text), zero deps
   pdf-renderer.ts        # Page -> PDF rendering via pdf-lib (calibrated colors/widths)
-  settings.ts            # Settings tab UI
+  settings.ts            # Settings tab UI (getSettingDefinitions() for 1.13+, display() fallback)
+  token-migration.ts     # One-time move of the auth token from ~/.remarkable-sync into local storage
+  node-os.d.ts           # Typing for the one Node API used (os.homedir), so no @types/node is needed
   constants.ts           # Shared constants
   *.test.ts              # Node test-runner unit tests
 
 run-sync.ts              # Standalone CLI sync (no Obsidian) for end-to-end testing
+node-fetch.ts            # Native-fetch FetchFn for the CLI tools (the plugin uses requestUrl)
+scripts/community-scan/  # Replica of the community directory's automated review (npm run scan:community)
 re-render.ts             # Re-render .rm files to PDF for comparison
 compare-reference-sheets.ts  # Compare rendered metadata vs ground truth
 compare-pixels.mjs       # Rasterized pixel comparison (MuPDF WASM)
@@ -53,18 +57,25 @@ tsconfig.json
 - **`FileOps` / `FetchFn` abstractions** (`cloud-client.ts`): the core logic is
   deliberately Obsidian-independent. File I/O and HTTP are injected as interfaces
   so the same code runs under Node (the `run-sync.ts` CLI and unit tests) and
-  under Obsidian (`main.ts` provides Node `fs` ops + Obsidian `requestUrl`).
+  under Obsidian (`main.ts` provides vault-adapter and local-storage ops +
+  Obsidian `requestUrl`).
   **Keep core modules free of direct `obsidian` imports.** Only `main.ts` and
   `settings.ts` should import from `obsidian`.
 - **HTTP in the plugin uses Obsidian's `requestUrl`**, not `fetch`, to avoid CORS
-  restrictions. Tests/CLI inject native fetch.
+  restrictions. `RemarkableCloudClient` requires an injected `FetchFn`; tests
+  pass mocks and the CLI tools pass `nodeFetch` (`node-fetch.ts`), so the plugin
+  source never references the global `fetch`.
 - **reMarkable sync v3 quirk:** blob requests to `/sync/v3/files/{hash}` require
   an `rm-filename` header matching the blob's logical name (index blobs use the
   `.docSchema` extension; content blobs use their real filename). Getting this
   wrong returns HTTP 400. See `cloud-client.ts` and `cloud-client.test.ts` — this
   is a regression-tested area, so don't change it casually.
-- **Auth tokens** are stored locally at `~/.remarkable-sync/token.json`, outside
-  the vault. Never write tokens or secrets into the vault.
+- **Auth tokens** live in the vault's local storage (`app.saveLocalStorage`),
+  outside the vault's files. Versions up to 1.0.9 used `~/.remarkable-sync/token.json`;
+  `token-migration.ts` copies it across on first load (read-only, so other vaults
+  and older versions keep working) and shows a reconnect notice if a signed-in
+  user's token can't be found. Never write tokens or secrets into the vault. The
+  CLI tools still use the file (`npx tsx run-sync.ts --register <code>`).
 - **Incremental sync:** `sync-manager.ts` tracks synced documents (version + hash)
   in `<sync folder>/.remarkable-sync-state.json` and skips unchanged docs.
 - **Sync logging:** each run writes a human-readable Markdown log to
@@ -97,6 +108,9 @@ npm run dev            # esbuild watch mode (rebuilds on change)
 npm run test:unit      # unit tests: npx tsx --test src/cloud-client.test.ts
 npx tsx --test src/sync-manager.test.ts   # run a specific test file
 npm test               # end-to-end CLI sync (run-sync.ts) — needs real auth
+
+npm ci --prefix scripts/community-scan   # once: install the review-scan toolchain
+npm run scan:community # replica of the community directory's review; must be clean
 ```
 
 Notes:
@@ -104,10 +118,20 @@ Notes:
   `styles.css`); that folder is git-ignored and regenerated on every build.
 - Type-checking uses `tsc -noEmit -skipLibCheck`; `strictNullChecks` and
   `noImplicitAny` are on. Always ensure `npx tsc -noEmit -skipLibCheck` is clean.
+- `npm run lint` runs `eslint-plugin-obsidianmd`'s `recommended` preset, the rule
+  set the community directory's automated review scans each release with
+  (including typescript-eslint's type-checked rules). Keep it clean: type parsed
+  JSON with an interface plus `as` rather than `any`, and mark intentionally
+  un-awaited promises with `void`.
+- `npm run scan:community` reproduces the directory's scan (no `@types/node`,
+  latest Obsidian typings, tests excluded, plus its behavior checks: no Node `fs`,
+  no environment variables or `os` identity calls). CI fails on any finding.
+  The rules and their sources are in CONTRIBUTING.md.
 - Unit tests use the built-in Node test runner (`node:test` + `node:assert/strict`)
   executed via `tsx`. Name new tests `src/<module>.test.ts`.
 - `npm test` (the CLI sync) performs a real network sync and requires a valid
-  token at `~/.remarkable-sync/token.json`; it is **not** a hermetic test.
+  token at `~/.remarkable-sync/token.json` (register with
+  `npx tsx run-sync.ts --register <code>`); it is **not** a hermetic test.
 
 ### Run the dev build in a real Obsidian vault
 
@@ -152,6 +176,10 @@ wrong.
 
 - **Indentation: tabs** (match the existing files).
 - Keep modules cohesive and Obsidian-free outside `main.ts` / `settings.ts`.
+- Settings rows are built by shared builder methods in `settings.ts`, used by both
+  `getSettingDefinitions()` and `display()`; add a new setting to both lists.
+- Follow the review rules in CONTRIBUTING.md (no `any`, `requestUrl` not `fetch`,
+  no Node `fs`, no APIs newer than `minAppVersion`).
 - Avoid adding heavy dependencies; the plugin bundles its runtime deps.
 - Comments should explain non-obvious intent/trade-offs, not narrate the code.
 - Match existing error-handling style: surface actionable messages to the user

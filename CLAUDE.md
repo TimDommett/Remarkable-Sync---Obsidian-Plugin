@@ -13,6 +13,7 @@ npm run build                              # type-check + bundle
 npx tsc -noEmit -skipLibCheck              # type-check only
 npm run test:unit                          # unit tests (cloud client)
 npx tsx --test src/sync-manager.test.ts    # run a specific test file
+npm run scan:community                     # community review scan (after: npm ci --prefix scripts/community-scan)
 ```
 
 Run the dev build in a real vault (build output is git-ignored):

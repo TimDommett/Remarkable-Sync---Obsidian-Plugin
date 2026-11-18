@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { RemarkableCloudClient, type FileOps } from './src/cloud-client';
+import { nodeFetch } from './node-fetch';
 import { SyncManager } from './src/sync-manager';
 
 const fileOps: FileOps = {
@@ -16,8 +17,17 @@ async function main() {
 	const configDir = path.join(process.env.USERPROFILE || process.env.HOME || '.', '.remarkable-sync');
 	console.log('Config dir:', configDir);
 
-	const client = new RemarkableCloudClient(configDir, fileOps);
+	const client = new RemarkableCloudClient(configDir, fileOps, nodeFetch);
 	await client.init();
+
+	// The plugin keeps its token in Obsidian's local storage, so the CLI
+	// registers itself: npx tsx run-sync.ts --register <one-time code>
+	if (process.argv[2] === '--register') {
+		const code = process.argv[3]?.trim();
+		if (!code) throw new Error('Usage: npx tsx run-sync.ts --register <one-time code>');
+		if (!(await client.registerDevice(code))) throw new Error('Registration failed. Check the code and try again.');
+		console.log('Registered; token saved to', client.tokens.tokenPath);
+	}
 	console.log('Authenticated:', client.isAuthenticated);
 
 	const vaultPath = path.resolve('.');

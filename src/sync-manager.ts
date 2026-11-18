@@ -37,12 +37,14 @@ export class SyncState {
 		try {
 			const data = await fileOps.readFile(stateFile);
 			if (!data) return state;
-			const parsed = JSON.parse(data);
+			const parsed = JSON.parse(data) as { last_sync?: string | null; synced_docs?: unknown };
 			state.lastSync = parsed.last_sync ?? null;
 			const docs = parsed.synced_docs;
 			// Guard against hand-edited/corrupt state: anything but a plain object resets.
 			state.syncedDocs =
-				docs && typeof docs === "object" && !Array.isArray(docs) ? docs : {};
+				docs && typeof docs === "object" && !Array.isArray(docs)
+					? (docs as Record<string, SyncedDocInfo>)
+					: {};
 		} catch {
 			// No state file or invalid JSON
 		}

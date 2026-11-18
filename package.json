@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-remarkable-sync",
-	"version": "1.0.9",
+	"version": "1.1.0",
 	"description": "Obsidian plugin for syncing reMarkable documents",
 	"main": "main.js",
 	"scripts": {
@@ -9,7 +9,8 @@
 		"lint": "eslint \"src/**/*.ts\"",
 		"typecheck": "tsc -noEmit -skipLibCheck",
 		"test": "npx tsx run-sync.ts",
-		"test:unit": "npx tsx --test src/*.test.ts"
+		"test:unit": "npx tsx --test src/*.test.ts",
+		"scan:community": "node scripts/community-scan/scan.mjs"
 	},
 	"keywords": [],
 	"author": "Tim Dommett",
@@ -22,7 +23,7 @@
 		"eslint": "^9.0.0",
 		"eslint-plugin-obsidianmd": "^0.3.0",
 		"mupdf": "^1.27.0",
-		"obsidian": "latest",
+		"obsidian": "^1.14.4",
 		"pdfjs-dist": "^5.4.624",
 		"ts-node": "^10.9.2",
 		"tslib": "2.4.0",

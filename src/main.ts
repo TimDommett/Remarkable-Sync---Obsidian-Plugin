@@ -1,10 +1,10 @@
-import { Notice, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
+import { FileSystemAdapter, Notice, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
+import { homedir } from "os";
 import { RemarkableSyncSettings, DEFAULT_SETTINGS, RemarkableSyncSettingTab } from "./settings";
-import { RemarkableCloudClient, type FileOps, type FetchFn, type FetchResponse } from "./cloud-client";
+import { RemarkableCloudClient, type FileOps, type FetchFn } from "./cloud-client";
 import { SyncManager, parseFolderList } from "./sync-manager";
 import { SYNC_INTERVALS, SYNC_LOG_FILENAME } from "./constants";
-import * as path from "path";
-import * as fs from "fs";
+import { TOKEN_STORAGE_KEY, migrateLegacyToken } from "./token-migration";
 
 export default class RemarkableSyncPlugin extends Plugin {
 	settings: RemarkableSyncSettings = DEFAULT_SETTINGS;
@@ -17,11 +17,12 @@ export default class RemarkableSyncPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		// Initialize cloud client with Node.js file ops + Obsidian fetch.
-		// The token store lives OUTSIDE the vault (~/.remarkable-sync), so it
-		// uses raw fs rather than the vault adapter.
-		const configDir = this.getConfigDir();
-		this.client = new RemarkableCloudClient(configDir, this.getTokenFileOps(), this.getObsidianFetch());
+		// Auth tokens live in this vault's local storage: outside the vault's
+		// files, so they are never synced or committed along with a vault.
+		// Upgrading from 1.0.9 or earlier keeps the user signed in: the first
+		// load copies the token from the old ~/.remarkable-sync file.
+		await this.migrateLegacyToken();
+		this.client = new RemarkableCloudClient(TOKEN_STORAGE_KEY, this.getTokenStorageOps(), this.getObsidianFetch());
 		await this.client.init();
 
 		// Update auth status from token store
@@ -73,16 +74,45 @@ export default class RemarkableSyncPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const saved = (await this.loadData()) as Partial<RemarkableSyncSettings> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 	}
 
-	private getConfigDir(): string {
-		const home = process.env.HOME || process.env.USERPROFILE || "";
-		return path.join(home, ".remarkable-sync");
+	/** The token JSON stored in this vault's local storage, or null. */
+	private readStoredToken(): string | null {
+		const value: unknown = this.app.loadLocalStorage(TOKEN_STORAGE_KEY);
+		return typeof value === "string" && value !== "" ? value : null;
+	}
+
+	// Copy a token saved by 1.0.9 or earlier into local storage (see
+	// token-migration.ts). Never blocks loading; if a previously signed-in user's
+	// token cannot be found, say so instead of silently appearing signed out.
+	private async migrateLegacyToken(): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		let outcome: string;
+		try {
+			const result = await migrateLegacyToken({
+				readStored: () => this.readStoredToken(),
+				writeStored: (json) => this.app.saveLocalStorage(TOKEN_STORAGE_KEY, json),
+				readText: async (p) => new TextDecoder().decode(await FileSystemAdapter.readLocalFile(p)),
+				homeDir: homeDirectory(),
+				vaultBasePath: adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null,
+			});
+			outcome = result.outcome;
+		} catch {
+			outcome = "failed";
+		}
+		if ((outcome === "not-found" || outcome === "failed") && this.settings.isAuthenticated) {
+			new Notice(
+				"reMarkable Sync could not find your existing reMarkable sign-in after updating. " +
+					"Please reconnect once in Settings > reMarkable Sync.",
+				0
+			);
+		}
 	}
 
 	private getObsidianFetch(): FetchFn {
@@ -98,43 +128,30 @@ export default class RemarkableSyncPlugin extends Plugin {
 				ok: result.status >= 200 && result.status < 300,
 				status: result.status,
 				text: async () => typeof result.text === "string" ? result.text : new TextDecoder().decode(result.arrayBuffer),
-				json: async () => result.json,
+				json: async () => result.json as unknown,
 				arrayBuffer: async () => result.arrayBuffer,
-			} as FetchResponse;
+			};
 		};
 	}
 
-	// File ops for the auth token store, which lives OUTSIDE the vault at
-	// ~/.remarkable-sync (secrets must never be written into the vault). Uses
-	// raw Node fs with absolute paths; desktop-only, which is fine since the
-	// plugin is isDesktopOnly.
-	private getTokenFileOps(): FileOps {
+	// FileOps for TokenStore, whose single "file" is the TOKEN_STORAGE_KEY entry
+	// in this vault's local storage (paths are ignored). Secrets must never be
+	// written into the vault's files.
+	private getTokenStorageOps(): FileOps {
+		const app = this.app;
+		const read = (): string | null => this.readStoredToken();
 		return {
-			async readFile(filePath: string): Promise<string | null> {
-				try {
-					return fs.readFileSync(filePath, "utf-8");
-				} catch {
-					return null;
-				}
+			readFile: async () => read(),
+			writeFile: async (_path: string, data: string) => {
+				app.saveLocalStorage(TOKEN_STORAGE_KEY, data);
 			},
-			async writeFile(filePath: string, data: string): Promise<void> {
-				const dir = path.dirname(filePath);
-				fs.mkdirSync(dir, { recursive: true });
-				fs.writeFileSync(filePath, data, "utf-8");
+			writeBinaryFile: async () => {
+				throw new Error("The token store holds text only.");
 			},
-			async writeBinaryFile(filePath: string, data: Uint8Array): Promise<void> {
-				const dir = path.dirname(filePath);
-				fs.mkdirSync(dir, { recursive: true });
-				fs.writeFileSync(filePath, data);
-			},
-			async mkdir(dirPath: string): Promise<void> {
-				fs.mkdirSync(dirPath, { recursive: true });
-			},
-			async exists(filePath: string): Promise<boolean> {
-				return fs.existsSync(filePath);
-			},
-			async deleteFile(filePath: string): Promise<void> {
-				fs.rmSync(filePath, { force: true });
+			mkdir: async () => {},
+			exists: async () => read() !== null,
+			deleteFile: async () => {
+				app.saveLocalStorage(TOKEN_STORAGE_KEY, null);
 			},
 		};
 	}
@@ -362,7 +379,8 @@ export default class RemarkableSyncPlugin extends Plugin {
 		const intervalMs = SYNC_INTERVALS[this.settings.syncIntervalLabel];
 		if (intervalMs && intervalMs > 0) {
 			this.syncIntervalId = window.setInterval(() => {
-				this.runSync();
+				// runSync reports its own failures via Notice; nothing to await here.
+				void this.runSync();
 			}, intervalMs);
 			this.registerInterval(this.syncIntervalId);
 		}
@@ -373,6 +391,15 @@ export default class RemarkableSyncPlugin extends Plugin {
 			window.clearInterval(this.syncIntervalId);
 			this.syncIntervalId = null;
 		}
+	}
+}
+
+// Where 1.0.9 and earlier wrote the token file; only used to migrate it.
+function homeDirectory(): string | null {
+	try {
+		return homedir();
+	} catch {
+		return null;
 	}
 }
 
@@ -387,5 +414,5 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 	return data.buffer.slice(
 		data.byteOffset,
 		data.byteOffset + data.byteLength
-	) as ArrayBuffer;
+	);
 }

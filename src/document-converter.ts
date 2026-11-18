@@ -24,6 +24,22 @@ export interface PageInfo {
 	verticalScroll: number | null;
 }
 
+/** The archive's `.metadata` JSON; only `visibleName` is read, the rest is kept as-is. */
+export interface ArchiveMetadata {
+	visibleName?: string;
+	[key: string]: unknown;
+}
+
+/** A `cPages.pages` entry: an object on newer firmware, a bare page ID on older. */
+type CPageEntry = string | { id?: string; verticalScroll?: { value?: number | null } };
+
+/** The fields read from the archive's `.content` JSON. */
+interface ContentInfo {
+	fileType?: string;
+	pages?: string[];
+	cPages?: { pages?: CPageEntry[] };
+}
+
 export interface DocumentContent {
 	docId: string;
 	docType: "notebook" | "pdf" | "epub";
@@ -31,7 +47,7 @@ export interface DocumentContent {
 	pages: PageInfo[];
 	originalPdf: Uint8Array | null;
 	originalEpub: Uint8Array | null;
-	metadata: Record<string, any>;
+	metadata: ArchiveMetadata;
 }
 
 // --- Converter ---
@@ -40,7 +56,7 @@ export class DocumentConverter {
 	private docId: string;
 	private files: Map<string, Uint8Array>;
 	private content: DocumentContent | null = null;
-	private contentInfo: Record<string, any> = {};
+	private contentInfo: ContentInfo = {};
 
 	constructor(docId: string, files: Map<string, Uint8Array>) {
 		this.docId = docId;
@@ -136,11 +152,11 @@ export class DocumentConverter {
 
 	// --- Archive processing ---
 
-	private readMetadata(fileList: string[]): Record<string, any> {
+	private readMetadata(fileList: string[]): ArchiveMetadata {
 		for (const name of fileList) {
 			if (name.endsWith(".metadata")) {
 				try {
-					return JSON.parse(this.textOf(name));
+					return JSON.parse(this.textOf(name)) as ArchiveMetadata;
 				} catch {
 					// ignore
 				}
@@ -149,11 +165,11 @@ export class DocumentConverter {
 		return {};
 	}
 
-	private readContentInfo(fileList: string[]): Record<string, any> {
+	private readContentInfo(fileList: string[]): ContentInfo {
 		for (const name of fileList) {
 			if (name.endsWith(".content")) {
 				try {
-					return JSON.parse(this.textOf(name));
+					return JSON.parse(this.textOf(name)) as ContentInfo;
 				} catch {
 					// ignore
 				}
@@ -163,7 +179,7 @@ export class DocumentConverter {
 	}
 
 	private determineDocType(
-		contentInfo: Record<string, any>,
+		contentInfo: ContentInfo,
 		fileList: string[]
 	): "notebook" | "pdf" | "epub" {
 		for (const name of fileList) {
@@ -178,7 +194,7 @@ export class DocumentConverter {
 
 	private extractPages(
 		fileList: string[],
-		contentInfo: Record<string, any>
+		contentInfo: ContentInfo
 	): PageInfo[] {
 		let pageIds: string[] = contentInfo.pages ?? [];
 
@@ -186,8 +202,8 @@ export class DocumentConverter {
 		const cPages = contentInfo.cPages;
 		const pageVerticalScroll = new Map<string, number>();
 		if (cPages && cPages.pages) {
-			pageIds = cPages.pages.map((p: any) => {
-				const id = typeof p === "object" ? p.id ?? p : p;
+			pageIds = cPages.pages.map((p) => {
+				const id = (typeof p === "object" ? p.id ?? p : p) as string;
 				if (typeof p === "object" && p.verticalScroll?.value != null) {
 					pageVerticalScroll.set(id, p.verticalScroll.value);
 				}
@@ -229,7 +245,7 @@ export class DocumentConverter {
 			for (const name of fileList) {
 				if (name.includes(`${pageId}-metadata.json`)) {
 					try {
-						const meta = JSON.parse(this.textOf(name));
+						const meta = JSON.parse(this.textOf(name)) as { template?: string | null };
 						pageInfo.template = meta.template ?? null;
 					} catch {
 						// ignore
